@@ -203,6 +203,18 @@ L'expert en charge » dans l'Excel de sortie, dans le PV de sortie et sous
    **écrasé puis renommé** (pas de deuxième fichier, pas de PDF). Le texte
    dicté n'est jamais modifié : les repères « 12*42 » restent.
 
+### Plusieurs dossiers d'entrée d'un coup (avant de quitter le bureau)
+
+Bouton **Plusieurs dossiers…** de l'onglet Entrée : choisissez le dossier de
+tranche (ex. « 2026.3100 à 2026.3199 »). Le programme liste les ELLE dont le
+Word n'a pas encore de photos (lecture seule). Pour chaque dossier vous
+pouvez choisir les photos (sinon : toutes sauf la capture d'écran), puis
+**Lancer**. Les dossiers sont traités l'un après l'autre ; la mise en veille
+du PC est bloquée pendant le lot ; une erreur sur un dossier ne modifie pas
+son Word et n'arrête pas les suivants. Un rapport s'affiche à la fin (aussi
+enregistré dans les sauvegardes) : photos exclues, parties identiques ou
+surlignées, erreurs. Laissez le PC allumé et la Dropbox synchronisée.
+
 Ce qui reste manuel : recopier les relevés de compteurs manquants (photos
 dans le dossier), les documents d'entretien, et le contrôle des adresses.
 

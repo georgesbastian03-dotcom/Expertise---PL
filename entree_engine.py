@@ -722,3 +722,159 @@ def compare_names(word_party_text, candidate_names):
         if r > best_r:
             best, best_r = name, r
     return best, best_r
+
+
+# --------------------------------------------------------------------------
+# Traitement par lots (plusieurs dossiers d'entrée d'un coup)
+# --------------------------------------------------------------------------
+def docx_needs_finalize(docx_path):
+    """True si le Word n'a pas encore de photos sous le titre PHOTOGRAPHIES
+    (lecture rapide du XML, sans ouvrir tout le document)."""
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(docx_path) as z:
+            xml = z.read("word/document.xml").decode("utf-8", errors="ignore")
+    except Exception:  # noqa: BLE001
+        return False
+    plain = re.sub(r"<[^>]+>", "", xml)
+    if "PHOTOGRAPHIES" not in plain:
+        return False
+    i = xml.find("PHOTOGRAPHIES")
+    j = xml.find("AUTRES PHOTOGRAPHIES", i + 1)
+    segment = xml[i : j if j > 0 else len(xml)]
+    return "<a:blip" not in segment
+
+
+def find_pending(parent):
+    """Dossiers « ELLE » sous `parent` (le dossier lui-même, ou une tranche
+    « 2026.3100 à 2026.3199 », ou « 2026 Dossiers DEF ») dont le Word reste à
+    finaliser. Lecture seule. Retourne [{"folder", "docx", "nom_final"}]."""
+    candidates = []
+    if securite.DOSSIER_RE.match(os.path.basename(os.path.normpath(parent))):
+        candidates = [parent]
+    else:
+        for root, dirs, _files in os.walk(parent):
+            depth = os.path.relpath(root, parent).count(os.sep)
+            for d in sorted(dirs):
+                if securite.DOSSIER_RE.match(d):
+                    candidates.append(os.path.join(root, d))
+            # ne descend pas dans les dossiers de dossiers, ni trop profond
+            dirs[:] = [d for d in dirs if not securite.DOSSIER_RE.match(d)] if depth < 1 else []
+    out = []
+    for folder in candidates:
+        info = parse_folder_name(folder)
+        if info["type"].upper() not in ("ELLE", "ELE"):
+            continue
+        try:
+            inv = scan_folder(folder)
+        except Exception:  # noqa: BLE001
+            continue
+        for p in inv["docx"]:
+            if docx_needs_finalize(p):
+                out.append({"folder": folder, "docx": p, "nom_final": final_docx_name(folder)})
+                break
+    return out
+
+
+def auto_parties(folder, docx_path, progress_cb=None):
+    """Contrôle automatique (sans rien réécrire) : noms des parties du Word
+    comparés aux noms lus sur les cartes d'identité du bail. Les noms
+    « proches mais différents » sont surlignés en jaune. Retourne
+    (updates, constats)."""
+    inv = scan_folder(folder)
+    parties = read_parties(docx_path)
+    names, constats = [], []
+    for doc in inv["documents"]:
+        if "BAIL" not in _norm(os.path.basename(doc)):
+            continue
+        try:
+            r = read_document(doc, progress_cb=progress_cb)
+        except Exception as exc:  # noqa: BLE001
+            constats.append(f"{os.path.basename(doc)} illisible ({exc})")
+            continue
+        names += [n for n in r["mrz_names"] if n not in names]
+    updates = []
+    if not names:
+        constats.append("Pas de nom lu sur des cartes d'identité : parties à contrôler à la main.")
+        return updates, constats
+    for part in parties:
+        name, ratio = compare_names(part["texte"], names)
+        if ratio >= 0.99:
+            constats.append(f"{part['role']} : identique à la carte d'identité ({name}).")
+        elif ratio >= 0.6:
+            updates.append({"index": part["index"], "texte": None, "surligner": True})
+            constats.append(f"{part['role']} : « {part['texte'][:50]} » ≠ carte « {name} » → surligné en jaune.")
+        else:
+            constats.append(f"{part['role']} : aucun nom correspondant sur les cartes → à contrôler.")
+    return updates, constats
+
+
+def process_batch(jobs, date_cloture=None, tighten_layout=True, progress_cb=None, stop_flag=None):
+    """Traite les dossiers l'un après l'autre. Une erreur sur un dossier
+    n'arrête pas les suivants (et ne modifie pas son Word). `jobs` :
+    [{"folder", "docx", "nom_final", "photos" (None = sélection
+    automatique)}]. Retourne la liste des résultats."""
+    results = []
+    for k, job in enumerate(jobs, 1):
+        if stop_flag and stop_flag():
+            break
+        name = os.path.basename(job["folder"])
+
+        def say(msg, k=k, name=name):
+            if progress_cb:
+                progress_cb(k, len(jobs), name, msg)
+
+        res = {"folder": job["folder"], "ok": False, "path": None, "constats": [], "erreur": None}
+        try:
+            say("Rangement des photos…")
+            ranger_photos(job["folder"])
+            photos = job.get("photos")
+            if photos is None:
+                items = classify_photos(scan_folder(job["folder"])["photo_images"])
+                photos = [p for p, c, _n in items if c]
+                exclues = [os.path.basename(p) for p, c, _n in items if not c]
+                if exclues:
+                    res["constats"].append("Photos exclues : " + ", ".join(exclues))
+                res["constats"].append(
+                    f"{len(photos)} photos injectées — photos d'index compteurs à retirer si présentes.")
+            else:
+                photos = [os.path.join(job["folder"], "Photos", os.path.basename(p))
+                          if not os.path.exists(p) else p for p in photos]
+            say("Contrôle des parties (bail)…")
+            updates, constats = auto_parties(job["folder"], job["docx"], progress_cb=lambda m: say(m))
+            res["constats"] += constats
+            say("Finalisation du Word…")
+            out = finalize(job["docx"], photos, date_cloture=date_cloture, parties_updates=updates,
+                           rename_to=job.get("nom_final"), tighten_layout=tighten_layout,
+                           progress_cb=lambda m: say(m))
+            res.update(ok=True, path=out["path"], sauvegarde=out.get("sauvegarde"))
+            res["constats"] += out["remarques"]
+        except Exception as exc:  # noqa: BLE001
+            res["erreur"] = str(exc)
+            res["constats"] = [c for c in res["constats"] if "injectées" not in c]
+        results.append(res)
+    return results
+
+
+def batch_report_text(results):
+    lines = [f"Lot du {date.today().strftime('%d/%m/%Y')} — {sum(r['ok'] for r in results)}/{len(results)} dossier(s) finalisé(s)", ""]
+    for r in results:
+        lines.append(("✓ " if r["ok"] else "✗ ") + os.path.basename(r["folder"]))
+        if r["erreur"]:
+            lines.append("   ERREUR (Word non modifié) : " + r["erreur"])
+        for c in r["constats"]:
+            lines.append("   • " + c)
+        lines.append("")
+    return "\n".join(lines)
+
+
+def keep_awake(on=True):
+    """Empêche Windows de se mettre en veille pendant un lot."""
+    try:
+        import ctypes
+
+        ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if on else 0))
+    except Exception:  # noqa: BLE001
+        pass

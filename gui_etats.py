@@ -790,6 +790,8 @@ class EntreeTab(ttk.Frame):
         ttk.Label(f, text="Dossier du n° :").grid(row=0, column=0, sticky="w")
         ttk.Entry(f, textvariable=self.folder_var).grid(row=0, column=1, sticky="we", padx=6)
         ttk.Button(f, text="Parcourir…", command=self._choose_folder).grid(row=0, column=2)
+        ttk.Button(f, text="Plusieurs dossiers…", command=lambda: EntreeBatchWindow(self, self.cfg, self.save_cfg)).grid(
+            row=0, column=3, padx=(6, 0))
         ttk.Label(f, text="Word à finaliser :").grid(row=1, column=0, sticky="w", pady=(6, 0))
         self.docx_var = tk.StringVar()
         self.docx_combo = ttk.Combobox(f, textvariable=self.docx_var, state="readonly")
@@ -1104,3 +1106,186 @@ class EntreeTab(ttk.Frame):
     def _open_word(self):
         if self.final_path and os.path.exists(self.final_path):
             open_path(self.final_path)
+
+
+class EntreeBatchWindow(tk.Toplevel):
+    """Plusieurs dossiers d'entrée d'un coup : on lance avant de partir,
+    les Word sont prêts à la vérification en rentrant."""
+
+    def __init__(self, parent, cfg, save_cfg):
+        super().__init__(parent)
+        self.title("Entrées — plusieurs dossiers")
+        self.geometry("1000x720")
+        self.cfg, self.save_cfg = cfg, save_cfg
+        self.jobs = []          # dicts de find_pending + "photos"
+        self._pmsg = None
+        self._stop = False
+        self.running = False
+        frm = ttk.Frame(self, padding=12)
+        frm.pack(fill="both", expand=True)
+        ttk.Label(frm, wraplength=960, justify="left", foreground=GREY, text=(
+            "Choisissez le dossier de tranche (ex. « 2026.3100 à 2026.3199 ») : le programme liste les entrées dont le Word "
+            "n'a pas encore de photos. Cochez celles à traiter, puis lancez. Chaque dossier est traité l'un après l'autre : "
+            "photos rangées et injectées (capture d'écran exclue), parties comparées aux cartes d'identité du bail "
+            "(différence → surligné en jaune, le texte n'est jamais réécrit), date, signature, renommage, avec une copie "
+            "de chaque original hors Dropbox. Une erreur sur un dossier ne touche ni son Word ni les suivants. "
+            "Laissez le PC allumé (la mise en veille est bloquée pendant le lot).")).pack(anchor="w")
+        row = ttk.Frame(frm)
+        row.pack(fill="x", pady=(8, 4))
+        self.parent_var = tk.StringVar(value=cfg.get("last_entree_batch", ""))
+        ttk.Entry(row, textvariable=self.parent_var).pack(side="left", fill="x", expand=True)
+        ttk.Button(row, text="Parcourir…", command=self._choose).pack(side="left", padx=6)
+        ttk.Button(row, text="Rechercher", command=self._scan).pack(side="left")
+        cols = ("dossier", "photos", "statut")
+        self.tree = ttk.Treeview(frm, columns=cols, show="headings", selectmode="extended", height=12)
+        for c, h, w in (("dossier", "Dossier", 520), ("photos", "Photos", 170), ("statut", "Statut", 250)):
+            self.tree.heading(c, text=h)
+            self.tree.column(c, width=w, anchor="w")
+        self.tree.pack(fill="both", expand=True, pady=(4, 4))
+        b = ttk.Frame(frm)
+        b.pack(fill="x")
+        ttk.Label(b, text="Sélection (Ctrl+clic pour plusieurs) :").pack(side="left")
+        ttk.Button(b, text="Choisir les photos du dossier sélectionné…", command=self._pick).pack(side="left", padx=6)
+        ttk.Button(b, text="Retirer de la liste", command=self._remove).pack(side="left")
+        c = ttk.Frame(frm)
+        c.pack(fill="x", pady=(8, 0))
+        self.date_var = tk.StringVar(value=date.today().strftime("%d/%m/%Y"))
+        ttk.Label(c, text="Date de clôture :").pack(side="left")
+        ttk.Entry(c, textvariable=self.date_var, width=12).pack(side="left", padx=(4, 16))
+        self.go = ttk.Button(c, text="Lancer le traitement de la liste", command=self._run)
+        self.go.pack(side="left")
+        self.stop_btn = ttk.Button(c, text="Arrêter après le dossier en cours", command=self._ask_stop, state="disabled")
+        self.stop_btn.pack(side="left", padx=6)
+        self.status = tk.StringVar()
+        ttk.Label(frm, textvariable=self.status, foreground=GREY, wraplength=960, justify="left").pack(anchor="w", pady=(6, 0))
+        self.report = tk.Text(frm, height=10, wrap="word", font=("Segoe UI", 9))
+        self.report.pack(fill="both", expand=True, pady=(6, 0))
+        self.protocol("WM_DELETE_WINDOW", self._close)
+        self._tick()
+
+    def _tick(self):
+        if self._pmsg is not None:
+            k, n, name, msg = self._pmsg
+            self.status.set(f"Dossier {k}/{n} — {name} : {msg}")
+            self._pmsg = None
+        try:
+            self.after(250, self._tick)
+        except tk.TclError:
+            pass
+
+    def _choose(self):
+        d = filedialog.askdirectory(parent=self, title="Dossier de tranche (ou dossier d'un n°)",
+                                    initialdir=self.parent_var.get() or None)
+        if d:
+            self.parent_var.set(d)
+            self._scan()
+
+    def _scan(self):
+        parent = self.parent_var.get().strip()
+        if not parent or not os.path.isdir(parent):
+            return
+        self.cfg["last_entree_batch"] = parent
+        self.save_cfg()
+        self.status.set("Recherche des dossiers à finaliser…")
+
+        def done(found):
+            self.jobs = [dict(j, photos=None) for j in found]
+            self._refresh()
+            self.status.set(f"{len(self.jobs)} dossier(s) d'entrée à finaliser trouvé(s).")
+
+        run_async(self, lambda: ee.find_pending(parent), done,
+                  lambda e: messagebox.showerror("Recherche", str(e), parent=self))
+
+    def _refresh(self, statuses=None):
+        self.tree.delete(*self.tree.get_children())
+        for i, j in enumerate(self.jobs):
+            ph = "automatique" if j["photos"] is None else f"{len(j['photos'])} choisie(s)"
+            st = (statuses or {}).get(i, "à traiter")
+            self.tree.insert("", "end", iid=str(i), values=(os.path.basename(j["folder"]), ph, st))
+
+    def _pick(self):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        i = int(sel[0])
+        job = self.jobs[i]
+        inv = ee.scan_folder(job["folder"])
+        items = ee.classify_photos(inv["photo_images"] + inv["root_images"])
+        if job["photos"] is not None:
+            chosen = {os.path.basename(p) for p in job["photos"]}
+            items = [(p, os.path.basename(p) in chosen, n) for p, _c, n in items]
+
+        def done(sel_items):
+            job["photos"] = [p for p, c, _n in sel_items if c]
+            self._refresh()
+
+        PhotoPicker(self, items, done)
+
+    def _remove(self):
+        for iid in sorted((int(s) for s in self.tree.selection()), reverse=True):
+            del self.jobs[iid]
+        self._refresh()
+
+    def _ask_stop(self):
+        self._stop = True
+        self.status.set("Arrêt demandé : le dossier en cours se termine normalement.")
+
+    def _run(self):
+        if not self.jobs or self.running:
+            return
+        if not messagebox.askyesno("Lancer", f"Traiter {len(self.jobs)} dossier(s) maintenant ?\n\n"
+                                   "Chaque Word est sauvegardé hors Dropbox avant d'être finalisé.", parent=self):
+            return
+        ensure_signature(self)
+        self.running, self._stop = True, False
+        self.go.configure(state="disabled")
+        self.stop_btn.configure(state="normal")
+        ee.keep_awake(True)
+        jobs = [dict(j) for j in self.jobs]
+        date_cl = self.date_var.get().strip()
+
+        def progress(k, n, name, msg):
+            self._pmsg = (k, n, name, msg)
+
+        def done(results):
+            ee.keep_awake(False)
+            self.running = False
+            self._pmsg = None
+            self.go.configure(state="normal")
+            self.stop_btn.configure(state="disabled")
+            text = ee.batch_report_text(results)
+            statuses = {i: ("✓ finalisé" if r["ok"] else "✗ erreur — Word non modifié") for i, r in enumerate(results)}
+            self._refresh(statuses)
+            self.report.delete("1.0", "end")
+            self.report.insert("1.0", text)
+            try:
+                rp = ee.securite.backup_dir() / f"Rapport lot entrées {date.today():%Y-%m-%d} {datetime_now()}.txt"
+                rp.write_text(text, encoding="utf-8")
+            except Exception:  # noqa: BLE001
+                pass
+            self.status.set(f"Lot terminé : {sum(r['ok'] for r in results)}/{len(results)} dossier(s) finalisé(s). "
+                            "Vérifiez chaque Word avant envoi.")
+
+        def failed(exc):
+            ee.keep_awake(False)
+            self.running = False
+            self.go.configure(state="normal")
+            self.stop_btn.configure(state="disabled")
+            messagebox.showerror("Lot interrompu", str(exc), parent=self)
+
+        run_async(self, lambda: ee.process_batch(jobs, date_cloture=date_cl, progress_cb=progress,
+                                                 stop_flag=lambda: self._stop), done, failed)
+
+    def _close(self):
+        if self.running and not messagebox.askyesno(
+                "Lot en cours", "Un lot est en cours. Fermer quand même la fenêtre ?\n"
+                "(le dossier en cours se termine, les suivants ne seront pas traités)", parent=self):
+            return
+        self._stop = True
+        self.destroy()
+
+
+def datetime_now():
+    from datetime import datetime
+
+    return datetime.now().strftime("%Hh%M")

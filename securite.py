@@ -20,7 +20,7 @@ from datetime import datetime
 
 import config
 
-DOSSIER_RE = re.compile(r"^\d{4}\.\d{3,4}\s+\S+")
+DOSSIER_RE = re.compile(r"^\d{4}\.\d{3,4}\s+[A-Za-zÀ-ÿ]{2,}")
 KEEP_DAYS = 60
 
 
