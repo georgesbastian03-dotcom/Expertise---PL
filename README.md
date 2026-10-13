@@ -143,6 +143,22 @@ expert agréé" dans votre Excel, ses valeurs sont utilisées à la place —
 utile uniquement si elles doivent un jour différer de celles fixées dans le
 programme.
 
+## Sécurité de vos dossiers (Dropbox du bureau)
+
+- Le programme **ne supprime jamais** un fichier du bureau.
+- Il ne travaille que dans le dossier d'un n° précis (« 2026.xxxx ELLE … ») :
+  la racine de la Dropbox ou un dossier de tranche sont refusés.
+- Avant d'écraser un fichier (Word d'entrée, Excel/PV de sortie déjà
+  existants), une **copie de sauvegarde** est faite **hors Dropbox**, dans
+  votre profil Windows (menu **Aide → Ouvrir les sauvegardes**), gardée 60
+  jours.
+- Les fichiers sont écrits sous un nom temporaire, vérifiés, puis mis à leur
+  place d'un coup : si le PC plante pendant l'enregistrement, l'original
+  reste intact.
+- Un fichier ouvert dans Word/Excel n'est jamais touché (message « fermez-le »).
+- Pour la sortie, si l'Excel ou le PV existe déjà, le programme demande
+  avant de le remplacer.
+
 ## Ma signature (une seule fois par PC)
 
 Votre signature n'est **jamais** publiée avec le programme (le dépôt GitHub

@@ -35,6 +35,8 @@ from datetime import date
 
 from PIL import Image, ImageOps
 
+import securite
+
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".heic", ".bmp", ".tif", ".tiff", ".webp"}
@@ -132,6 +134,7 @@ def scan_folder(folder):
 def ranger_photos(folder):
     """Déplace les photos en vrac à la racine dans « Photos ». Ne supprime
     rien : en cas de doublon de nom, la photo est renommée (suffixe _2)."""
+    securite.check_dossier_folder(folder)
     inv = scan_folder(folder)
     dest = inv["photos_dir"]
     os.makedirs(dest, exist_ok=True)
@@ -347,11 +350,10 @@ def finalize(docx_path, photos, date_cloture=None, parties_updates=None, initial
         if progress_cb:
             progress_cb(msg)
 
-    try:
-        with open(docx_path, "r+b"):
-            pass
-    except OSError as exc:
-        raise EntreeError("Le Word est ouvert ailleurs (Word, Dropbox…) : fermez-le puis recommencez.") from exc
+    securite.check_dossier_folder(os.path.dirname(docx_path))
+    securite.ensure_not_locked(docx_path)
+    say("Sauvegarde de l'original (hors Dropbox)…")
+    backup = securite.backup_file(docx_path)
 
     say("Ouverture du Word…")
     d = docx.Document(docx_path)
@@ -529,7 +531,17 @@ def finalize(docx_path, photos, date_cloture=None, parties_updates=None, initial
             run = []
 
     say("Enregistrement du Word…")
-    d.save(docx_path)
+    temp = securite.temp_path_for(docx_path)
+    try:
+        d.save(temp)
+        import docx as _docx_check
+
+        _docx_check.Document(temp)  # le fichier écrit se relit correctement
+    except Exception as exc:
+        if os.path.exists(temp):
+            os.remove(temp)  # fichier temporaire du programme uniquement
+        raise EntreeError(f"Enregistrement impossible, l'original n'a pas été modifié : {exc}") from exc
+    securite.commit_temp(temp, docx_path)
 
     final_path = docx_path
     if rename_to:
@@ -540,7 +552,7 @@ def finalize(docx_path, photos, date_cloture=None, parties_updates=None, initial
             else:
                 os.replace(docx_path, target)
                 final_path = target
-    return {"path": final_path, "photos": len(photos), "remarques": remarques}
+    return {"path": final_path, "photos": len(photos), "remarques": remarques, "sauvegarde": backup}
 
 
 # --------------------------------------------------------------------------

@@ -25,6 +25,7 @@ import openpyxl
 
 import docx_fill
 import montant_lettres
+import securite
 import signature
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -560,26 +561,49 @@ def output_names(data):
     return xlsx, pv
 
 
-def generate(data, output_dir=None):
+def existing_outputs(data, output_dir=None):
+    out_dir = output_dir or data.get("dossier_folder")
+    return [p for p in (os.path.join(out_dir or "", n) for n in output_names(data)) if os.path.exists(p)]
+
+
+def generate(data, output_dir=None, overwrite=False):
     """Génère l'Excel et le PV Word dans le dossier du n° (ou output_dir).
-    Retourne {"excel", "pv", "total", "calc", "saisie"}."""
+    N'écrase un fichier existant que si overwrite=True, et toujours après
+    une sauvegarde hors Dropbox. Retourne {"excel", "pv", "total", "calc",
+    "saisie", "sauvegardes"}."""
     if not data.get("dossier"):
         raise SortieError("Le n° de dossier est obligatoire.")
     out_dir = output_dir or data.get("dossier_folder")
     if not out_dir or not os.path.isdir(out_dir):
         raise SortieError("Choisissez le dossier du n° (où déposer les fichiers).")
+    securite.check_dossier_folder(out_dir)
     calc = compute(data)
     xlsx_name, pv_name = output_names(data)
     xlsx_path = os.path.join(out_dir, xlsx_name)
     pv_path = os.path.join(out_dir, pv_name)
-    for p in (xlsx_path, pv_path):
-        if os.path.exists(p):
-            try:
-                os.rename(p, p)  # échoue si le fichier est ouvert dans Excel/Word
-            except OSError as exc:
-                raise SortieError(f"Fermez d'abord « {os.path.basename(p)} » (ouvert dans Excel ou Word).") from exc
-    fill_excel(data, xlsx_path)
-    fill_pv(data, pv_path, calc["total"])
     saisie_path = os.path.join(out_dir, f"{data['dossier']} saisie sortie.json")
+    exist = [p for p in (xlsx_path, pv_path) if os.path.exists(p)]
+    if exist and not overwrite:
+        raise SortieError("Ces fichiers existent déjà : " + ", ".join(os.path.basename(p) for p in exist))
+    for p in (xlsx_path, pv_path, saisie_path):
+        securite.ensure_not_locked(p)
+    sauvegardes = [securite.backup_file(p) for p in (xlsx_path, pv_path, saisie_path) if os.path.exists(p)]
+
+    tmp_x, tmp_pv = securite.temp_path_for(xlsx_path), securite.temp_path_for(pv_path)
+    try:
+        fill_excel(data, tmp_x)
+        fill_pv(data, tmp_pv, calc["total"])
+        openpyxl.load_workbook(tmp_x)  # vérifie que les fichiers se relisent
+        import docx as _docx_check
+
+        _docx_check.Document(tmp_pv)
+    except Exception:
+        for t in (tmp_x, tmp_pv):
+            if os.path.exists(t):
+                os.remove(t)  # fichiers temporaires du programme uniquement
+        raise
+    securite.commit_temp(tmp_x, xlsx_path)
+    securite.commit_temp(tmp_pv, pv_path)
     save_saisie(data, saisie_path)
-    return {"excel": xlsx_path, "pv": pv_path, "total": calc["total"], "calc": calc, "saisie": saisie_path}
+    return {"excel": xlsx_path, "pv": pv_path, "total": calc["total"], "calc": calc,
+            "saisie": saisie_path, "sauvegardes": [s for s in sauvegardes if s]}

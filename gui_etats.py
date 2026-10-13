@@ -437,6 +437,11 @@ class SortieTab(ttk.Frame):
         folder = filedialog.askdirectory(title="Dossier du n° (sortie locative)", initialdir=start)
         if not folder:
             return
+        try:
+            ee.securite.check_dossier_folder(folder)
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showwarning("Dossier", str(exc))
+            return
         self.cfg["last_sortie_parent"] = os.path.dirname(folder)
         self.save_cfg()
         self.folder_var.set(folder)
@@ -578,9 +583,15 @@ class SortieTab(ttk.Frame):
         if missing:
             messagebox.showwarning("Champs manquants", "À compléter : " + ", ".join(missing) + ".")
             return
+        exist = se.existing_outputs(d)
+        if exist and not messagebox.askyesno(
+                "Fichiers existants",
+                "Ces fichiers existent déjà dans le dossier :\n\n" + "\n".join(os.path.basename(p) for p in exist)
+                + "\n\nLes remplacer ? (une copie de sauvegarde est faite d'abord, hors Dropbox)"):
+            return
         ensure_signature(self)
         try:
-            res = se.generate(d)
+            res = se.generate(d, overwrite=bool(exist))
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("Génération impossible", str(exc))
             return
@@ -843,6 +854,11 @@ class EntreeTab(ttk.Frame):
             return
         self.cfg["last_entree_parent"] = os.path.dirname(folder)
         self.save_cfg()
+        try:
+            ee.securite.check_dossier_folder(folder)
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showwarning("Dossier", str(exc))
+            return
         self.folder_var.set(folder)
         self._load_folder(folder)
 
@@ -1050,7 +1066,9 @@ class EntreeTab(ttk.Frame):
         if newname and not newname.lower().endswith(".docx"):
             newname += ".docx"
         if not messagebox.askyesno("Confirmer", f"Le Word « {os.path.basename(p)} » va être finalisé et écrasé "
-                                   f"({len(photos)} photo(s)), puis renommé en « {newname} ».\n\nContinuer ?"):
+                                   f"({len(photos)} photo(s)), puis renommé en « {newname} ».\n\n"
+                                   "Une copie de l'original est d'abord gardée hors Dropbox "
+                                   "(Aide → Ouvrir les sauvegardes).\n\nContinuer ?"):
             return
         self.go_btn.configure(state="disabled")
 
@@ -1066,7 +1084,8 @@ class EntreeTab(ttk.Frame):
             self.go_btn.configure(state="normal")
             self.final_path = res["path"]
             self.open_btn.configure(state="normal")
-            msg = f"Word finalisé : {os.path.basename(res['path'])} ({res['photos']} photos)."
+            msg = (f"Word finalisé : {os.path.basename(res['path'])} ({res['photos']} photos).\n"
+                   f"Copie de l'original avant modification : {res.get('sauvegarde')}")
             if res["remarques"]:
                 msg += "\n\nÀ noter :\n• " + "\n• ".join(res["remarques"])
             self.progress_var.set(msg)
