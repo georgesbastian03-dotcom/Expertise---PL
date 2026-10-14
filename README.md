@@ -206,8 +206,11 @@ L'expert en charge » dans l'Excel de sortie, dans le PV de sortie et sous
 ### Plusieurs dossiers d'entrée d'un coup (avant de quitter le bureau)
 
 Bouton **Plusieurs dossiers…** de l'onglet Entrée : choisissez le dossier de
-tranche (ex. « 2026.3100 à 2026.3199 »). Le programme liste les ELLE dont le
-Word n'a pas encore de photos (lecture seule). Pour chaque dossier vous
+tranche (ex. « 2026.3100 à 2026.3199 ») et vos **initiales** (GB par défaut,
+mémorisées). Le programme liste **vos** ELLE dont le Word n'a pas encore de
+photos (lecture seule) ; les dossiers des collègues (BMI, EDG, CH, MN, VM,
+TG…) et ceux sans initiales sont ignorés et comptés à part. En mode « un
+dossier », choisir un dossier d'un collègue affiche un avertissement. Pour chaque dossier vous
 pouvez choisir les photos (sinon : toutes sauf la capture d'écran), puis
 **Lancer**. Les dossiers sont traités l'un après l'autre ; la mise en veille
 du PC est bloquée pendant le lot ; une erreur sur un dossier ne modifie pas

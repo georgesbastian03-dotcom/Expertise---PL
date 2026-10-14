@@ -532,10 +532,10 @@ def parse_folder_name(folder):
         return {"dossier": "", "type": "", "reste": "", "initiales": "", "base": name}
     dossier, typ, reste = m.groups()
     initiales = ""
-    m2 = re.search(r"\b([A-Za-z]{2,4})\s*$", reste)
-    if m2 and m2.group(1).isupper():
-        initiales = m2.group(1)
-        reste = reste[: m2.start()].rstrip()
+    m2 = re.search(r"(?:^|[\s)])\(?([A-Za-z]{2,4})\)?\s*$", reste)
+    if m2:
+        initiales = m2.group(1).upper()
+        reste = reste[: m2.start(1)].rstrip(" (")
     reste = _DATE_SUFFIX_RE.sub(" ", reste).strip()
     return {"dossier": dossier, "type": typ, "reste": reste, "initiales": initiales,
             "base": f"{dossier} {typ} {reste}".strip()}

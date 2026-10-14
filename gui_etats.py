@@ -86,6 +86,18 @@ def ensure_signature(parent):
     return True
 
 
+def confirm_own_folder(parent, cfg, folder):
+    """Avertit si le dossier choisi porte les initiales d'un collègue."""
+    mine = (cfg.get("mes_initiales") or "GB").upper()
+    ini = ee.folder_initials(folder)
+    if ini == mine:
+        return True
+    qui = f"de {ini}" if ini else "sans initiales"
+    return messagebox.askyesno(
+        "Dossier d'un collègue ?", f"Ce dossier est {qui}, pas {mine} :\n\n{os.path.basename(folder)}\n\n"
+        "Continuer quand même ?", parent=parent)
+
+
 class ScrollArea(ttk.Frame):
     """Contenu défilant (molette active quand la souris est au-dessus)."""
 
@@ -441,6 +453,8 @@ class SortieTab(ttk.Frame):
             ee.securite.check_dossier_folder(folder)
         except Exception as exc:  # noqa: BLE001
             messagebox.showwarning("Dossier", str(exc))
+            return
+        if not confirm_own_folder(self, self.cfg, folder):
             return
         self.cfg["last_sortie_parent"] = os.path.dirname(folder)
         self.save_cfg()
@@ -861,6 +875,8 @@ class EntreeTab(ttk.Frame):
         except Exception as exc:  # noqa: BLE001
             messagebox.showwarning("Dossier", str(exc))
             return
+        if not confirm_own_folder(self, self.cfg, folder):
+            return
         self.folder_var.set(folder)
         self._load_folder(folder)
 
@@ -1124,8 +1140,9 @@ class EntreeBatchWindow(tk.Toplevel):
         frm = ttk.Frame(self, padding=12)
         frm.pack(fill="both", expand=True)
         ttk.Label(frm, wraplength=960, justify="left", foreground=GREY, text=(
-            "Choisissez le dossier de tranche (ex. « 2026.3100 à 2026.3199 ») : le programme liste les entrées dont le Word "
-            "n'a pas encore de photos. Cochez celles à traiter, puis lancez. Chaque dossier est traité l'un après l'autre : "
+            "Choisissez le dossier de tranche (ex. « 2026.3100 à 2026.3199 ») : le programme liste VOS entrées (initiales "
+            "ci-dessous, ex. GB) dont le Word n'a pas encore de photos ; les dossiers des collègues sont ignorés. "
+            "Retirez ceux à ne pas traiter, puis lancez. Chaque dossier est traité l'un après l'autre : "
             "photos rangées et injectées (capture d'écran exclue), parties comparées aux cartes d'identité du bail "
             "(différence → surligné en jaune, le texte n'est jamais réécrit), date, signature, renommage, avec une copie "
             "de chaque original hors Dropbox. Une erreur sur un dossier ne touche ni son Word ni les suivants. "
@@ -1133,6 +1150,9 @@ class EntreeBatchWindow(tk.Toplevel):
         row = ttk.Frame(frm)
         row.pack(fill="x", pady=(8, 4))
         self.parent_var = tk.StringVar(value=cfg.get("last_entree_batch", ""))
+        ttk.Label(row, text="Initiales :").pack(side="left")
+        self.ini_var = tk.StringVar(value=cfg.get("mes_initiales", "GB"))
+        ttk.Entry(row, textvariable=self.ini_var, width=6).pack(side="left", padx=(4, 12))
         ttk.Entry(row, textvariable=self.parent_var).pack(side="left", fill="x", expand=True)
         ttk.Button(row, text="Parcourir…", command=self._choose).pack(side="left", padx=6)
         ttk.Button(row, text="Rechercher", command=self._scan).pack(side="left")
@@ -1184,16 +1204,25 @@ class EntreeBatchWindow(tk.Toplevel):
         parent = self.parent_var.get().strip()
         if not parent or not os.path.isdir(parent):
             return
+        ini = self.ini_var.get().strip().upper()
+        if not ini:
+            messagebox.showwarning("Initiales", "Indiquez vos initiales (ex. GB).", parent=self)
+            return
         self.cfg["last_entree_batch"] = parent
+        self.cfg["mes_initiales"] = ini
         self.save_cfg()
         self.status.set("Recherche des dossiers à finaliser…")
+        skipped = []
 
         def done(found):
             self.jobs = [dict(j, photos=None) for j in found]
             self._refresh()
-            self.status.set(f"{len(self.jobs)} dossier(s) d'entrée à finaliser trouvé(s).")
+            autres = sorted({i for _f, i in skipped})
+            self.status.set(f"{len(self.jobs)} dossier(s) d'entrée {ini} à finaliser trouvé(s)."
+                            + (f"  Ignorés : {len(skipped)} dossier(s) d'entrée d'autres initiales ({', '.join(autres)})."
+                               if skipped else ""))
 
-        run_async(self, lambda: ee.find_pending(parent), done,
+        run_async(self, lambda: ee.find_pending(parent, initiales=ini, skipped=skipped), done,
                   lambda e: messagebox.showerror("Recherche", str(e), parent=self))
 
     def _refresh(self, statuses=None):

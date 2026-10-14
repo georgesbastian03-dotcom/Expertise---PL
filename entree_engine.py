@@ -82,13 +82,25 @@ def parse_folder_name(folder):
         return {"dossier": "", "type": "", "reste": name, "initiales": ""}
     dossier, typ, reste = m.groups()
     initiales = ""
-    m2 = re.search(r"\b([A-Za-z]{2,4})\s*$", reste)
-    if m2 and m2.group(1).isupper():
-        initiales = m2.group(1)
-        reste = reste[: m2.start()].rstrip()
+    m2 = re.search(r"(?:^|[\s)])\(?([A-Za-z]{2,4})\)?\s*$", reste)
+    if m2:
+        initiales = m2.group(1).upper()
+        reste = reste[: m2.start(1)].rstrip(" (")
     reste = _DATE_SUFFIX_RE.sub(" ", reste).strip()
     reste = re.sub(r"\s+", " ", reste)
     return {"dossier": dossier, "type": typ, "reste": reste, "initiales": initiales}
+
+
+_INITIALES_RE = re.compile(r"(?:^|[\s)])\(?([A-Za-z]{2,4})\)?\s*$")
+
+
+def folder_initials(folder):
+    """Initiales de l'expert en fin de nom de dossier, en majuscules :
+    « … (01.09) GB » → GB, « … (05.10)GB » → GB, « … (15.09) bmi » → BMI,
+    « … rue du Fort 10 (MN) » → MN. Chaîne vide si absentes."""
+    name = os.path.basename(os.path.normpath(folder or "")).strip()
+    m = _INITIALES_RE.search(name)
+    return m.group(1).upper() if m else ""
 
 
 def final_docx_name(folder, initiales="GB"):
@@ -746,10 +758,14 @@ def docx_needs_finalize(docx_path):
     return "<a:blip" not in segment
 
 
-def find_pending(parent):
-    """Dossiers « ELLE » sous `parent` (le dossier lui-même, ou une tranche
-    « 2026.3100 à 2026.3199 », ou « 2026 Dossiers DEF ») dont le Word reste à
-    finaliser. Lecture seule. Retourne [{"folder", "docx", "nom_final"}]."""
+def find_pending(parent, initiales="GB", skipped=None):
+    """Dossiers « ELLE » de l'expert `initiales` sous `parent` (le dossier
+    lui-même, une tranche « 2026.3100 à 2026.3199 », ou « 2026 Dossiers
+    DEF ») dont le Word reste à finaliser. Les dossiers des collègues (autres
+    initiales) et ceux sans initiales sont ignorés et, si `skipped` est une
+    liste, y sont ajoutés. Lecture seule. Retourne [{"folder", "docx",
+    "nom_final"}]."""
+    initiales = (initiales or "").strip().upper()
     candidates = []
     if securite.DOSSIER_RE.match(os.path.basename(os.path.normpath(parent))):
         candidates = [parent]
@@ -765,6 +781,11 @@ def find_pending(parent):
     for folder in candidates:
         info = parse_folder_name(folder)
         if info["type"].upper() not in ("ELLE", "ELE"):
+            continue
+        ini = folder_initials(folder)
+        if initiales and ini != initiales:
+            if skipped is not None:
+                skipped.append((folder, ini or "sans initiales"))
             continue
         try:
             inv = scan_folder(folder)

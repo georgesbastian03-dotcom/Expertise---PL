@@ -17,6 +17,8 @@ DEFAULTS = {
     # --- Onglets "État des lieux" (entrée / sortie), 100 % locaux ---------
     "last_entree_parent": "",
     "last_sortie_parent": "",
+    "last_entree_batch": "",
+    "mes_initiales": "GB",
 }
 
 
