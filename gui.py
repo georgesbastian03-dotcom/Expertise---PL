@@ -5,6 +5,7 @@ permis de location, onglets « État des lieux — entrée » et « — sortie �
 """
 import os
 import shutil
+import subprocess
 import sys
 import threading
 import tkinter as tk
@@ -851,6 +852,11 @@ class App(tk.Tk):
         except Exception:
             pass
 
+        try:
+            self.iconbitmap(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icone.ico"))
+        except Exception:
+            pass
+
         self.cfg = config.load_config()
 
         self._build_menu()
@@ -922,6 +928,7 @@ class App(tk.Tk):
             label="Vérifier les mises à jour…",
             command=lambda: self._check_update(silent=False),
         )
+        aide_menu.add_command(label="Créer l'icône sur le Bureau", command=self._creer_raccourci)
         aide_menu.add_command(label="Ma signature…", command=lambda: gui_etats.choose_signature(self))
         aide_menu.add_command(label="Ouvrir les sauvegardes",
                               command=lambda: gui_etats.open_path(str(gui_etats.ee.securite.backup_dir())))
@@ -929,6 +936,13 @@ class App(tk.Tk):
         aide_menu.add_command(label="À propos", command=self._show_about)
         menubar.add_cascade(label="Aide", menu=aide_menu)
         self.config(menu=menubar)
+
+    def _creer_raccourci(self):
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Creer_raccourci_bureau.vbs")
+        if not sys.platform.startswith("win"):
+            messagebox.showinfo("Icône sur le Bureau", "Disponible uniquement sous Windows.")
+            return
+        subprocess.Popen(["wscript.exe", script])
 
     def _show_about(self):
         messagebox.showinfo(
