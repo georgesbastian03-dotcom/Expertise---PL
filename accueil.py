@@ -3,8 +3,19 @@
 Les illustrations sont dessinées directement (Canvas tkinter) : aucun fichier
 image à fournir, rien à télécharger, tout fonctionne hors ligne.
 """
+import os
 import tkinter as tk
 from tkinter import ttk
+
+try:
+    from PIL import Image, ImageDraw, ImageTk
+except ImportError:  # Pillow absent : on garde les dessins
+    Image = None
+
+# Photos des bulles : déposer par ex. « expertise.jpg » dans ce dossier pour
+# remplacer le dessin de la bulle correspondante (voir les noms dans gui.py).
+DOSSIER_PHOTOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "accueil")
+EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 
 FOND = "#f4f6f9"
 TEXTE = "#1f2d3d"
@@ -94,12 +105,43 @@ def dessin_permis(c, cx, cy, u):
                   fill="#ffffff", width=max(2, 4 * u), capstyle="round", joinstyle="round")
 
 
+# --- Photos ----------------------------------------------------------------
+
+def trouver_photo(cle):
+    for ext in EXTENSIONS:
+        chemin = os.path.join(DOSSIER_PHOTOS, cle + ext)
+        if os.path.isfile(chemin):
+            return chemin
+    return None
+
+
+def photo_ronde(chemin, diametre):
+    """Recadre la photo au centre, en carré, puis la découpe en disque lissé
+    sur la couleur de fond. Retourne None si l'image est illisible."""
+    if Image is None:
+        return None
+    try:
+        img = Image.open(chemin).convert("RGB")
+    except Exception:  # noqa: BLE001
+        return None
+    cote = min(img.size)
+    gauche, haut = (img.width - cote) // 2, (img.height - cote) // 2
+    img = img.crop((gauche, haut, gauche + cote, haut + cote)).resize((diametre, diametre), Image.LANCZOS)
+    # Masque dessiné 4x plus grand puis réduit : bord du cercle sans escaliers.
+    masque = Image.new("L", (diametre * 4, diametre * 4), 0)
+    ImageDraw.Draw(masque).ellipse((0, 0, diametre * 4 - 1, diametre * 4 - 1), fill=255)
+    masque = masque.resize((diametre, diametre), Image.LANCZOS)
+    fond = Image.new("RGB", (diametre, diametre), FOND)
+    fond.paste(img, (0, 0), masque)
+    return ImageTk.PhotoImage(fond)
+
+
 # --- Bulle cliquable -------------------------------------------------------
 
 class Bulle(tk.Canvas):
     """Grand cercle illustré, avec titre et sous-titre, qui réagit au survol."""
 
-    def __init__(self, parent, titre, dessin, commande, couleur, sous_titre="", diametre=220):
+    def __init__(self, parent, titre, dessin, commande, couleur, sous_titre="", diametre=220, photo=None):
         hauteur = diametre + 70
         super().__init__(parent, width=diametre + 20, height=hauteur, bg=FOND,
                          highlightthickness=0, cursor="hand2")
@@ -108,7 +150,14 @@ class Bulle(tk.Canvas):
         d = diametre
         self._cercle = self.create_oval(10, 4, 10 + d, 4 + d, fill=couleur, outline="#d5dbe3", width=3)
         cx, cy = 10 + d / 2, 4 + d / 2
-        dessin(self, cx, cy, d / 200)
+        chemin = trouver_photo(photo) if photo else None
+        self._image = photo_ronde(chemin, d) if chemin else None
+        if self._image is not None:
+            self.create_image(cx, cy, image=self._image)
+            self.tag_raise(self._cercle)
+            self.itemconfigure(self._cercle, fill="")
+        else:
+            dessin(self, cx, cy, d / 200)
         self.create_text(cx, d + 26, text=titre, fill=TEXTE, font=("Segoe UI", 13, "bold"),
                          width=d + 10, justify="center")
         if sous_titre:

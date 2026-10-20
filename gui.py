@@ -871,22 +871,22 @@ class App(tk.Tk):
 
         nav.ajouter("accueil", accueil.PageBulles(
             nav, "Experts Nicolai", "Choisissez une section", [
-                dict(titre="Expertise immobilière", dessin=accueil.dessin_expertise_immobiliere,
+                dict(titre="Expertise immobilière", dessin=accueil.dessin_expertise_immobiliere, photo="expertise_immobiliere",
                      commande=aller("expertise"), couleur="#dcebf9"),
-                dict(titre="Topographie", dessin=accueil.dessin_topographie,
+                dict(titre="Topographie", dessin=accueil.dessin_topographie, photo="topographie",
                      commande=aller("topographie"), couleur="#e3f2e1", sous_titre="En préparation"),
             ], diametre=260))
 
         nav.ajouter("expertise", accueil.PageModule(
             nav, "Expertise immobilière", aller("accueil"),
             lambda parent: accueil.PageBulles(parent, "Expertise immobilière", "Que voulez-vous encoder ?", [
-                dict(titre="Entrées locatives", dessin=accueil.dessin_entree,
+                dict(titre="Entrées locatives", dessin=accueil.dessin_entree, photo="entree",
                      commande=aller("entree"), couleur="#e3f2e1"),
-                dict(titre="Sorties locatives", dessin=accueil.dessin_sortie,
+                dict(titre="Sorties locatives", dessin=accueil.dessin_sortie, photo="sortie",
                      commande=aller("sortie"), couleur="#fdebd8"),
-                dict(titre="Expertises", dessin=accueil.dessin_expertises,
+                dict(titre="Expertises", dessin=accueil.dessin_expertises, photo="expertises",
                      commande=aller("expertises"), couleur="#dcebf9"),
-                dict(titre="Permis de location", dessin=accueil.dessin_permis,
+                dict(titre="Permis de location", dessin=accueil.dessin_permis, photo="permis",
                      commande=aller("permis"), couleur="#efe5f7"),
             ], diametre=180)))
 
