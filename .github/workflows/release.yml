@@ -1,11 +1,12 @@
-# Publie une release dès qu'un tag « vX.Y.Z » est poussé : le programme
-# (updater.py) y trouve le .zip à télécharger. Les notes de version sont
-# reprises du message du tag annoté.
+# Publie une release quand APP_VERSION (updater.py) change sur main : le
+# programme y trouve le .zip à télécharger. Les notes de version sont celles
+# de notes_de_version.md.
 name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,21 +16,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Vérifier que APP_VERSION correspond au tag
+      - name: Lire la version
+        id: v
         run: |
           version=$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' updater.py)
-          test "v$version" = "$GITHUB_REF_NAME" || { echo "APP_VERSION=$version mais tag=$GITHUB_REF_NAME"; exit 1; }
-
-      - name: Construire le .zip
-        run: git archive --format=zip --prefix=rapports_permis_location/ -o "rapports_permis_location_${GITHUB_REF_NAME}.zip" "$GITHUB_REF_NAME"
-
-      - name: Publier la release
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "existe=oui" >> "$GITHUB_OUTPUT"
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: Construire et publier
+        if: steps.v.outputs.existe != 'oui'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
         run: |
-          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-          gh release create "$GITHUB_REF_NAME" "rapports_permis_location_${GITHUB_REF_NAME}.zip" \
-            --title "Version ${GITHUB_REF_NAME#v}" --notes-from-tag
+          git archive --format=zip --prefix=rapports_permis_location/ -o "rapports_permis_location_${TAG}.zip" HEAD
+          gh release create "$TAG" "rapports_permis_location_${TAG}.zip" \
+            --target "$GITHUB_SHA" --title "Version ${TAG#v}" --notes-file notes_de_version.md
