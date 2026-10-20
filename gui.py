@@ -11,6 +11,7 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import ttk, filedialog, messagebox
 
+import accueil
 import config
 import generator
 import engine
@@ -833,7 +834,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Rapports de Visite — Experts Nicolai")
-        self.geometry("820x760")
+        self.geometry("1040x760")
         self.minsize(660, 480)
         try:
             if sys.platform.startswith("win"):
@@ -854,26 +855,65 @@ class App(tk.Tk):
 
         self._build_menu()
 
-        notebook = ttk.Notebook(self)
-        notebook.pack(fill="both", expand=True)
-
-        notebook.add(PermisLocationTab(notebook, self.cfg), text="Permis de location")
-        save_cfg = lambda: config.save_config(self.cfg)  # noqa: E731
-        notebook.add(gui_etats.EntreeTab(notebook, self.cfg, save_cfg), text="État des lieux — entrée")
-        notebook.add(gui_etats.SortieTab(notebook, self.cfg, save_cfg), text="État des lieux — sortie")
-        notebook.add(
-            PlaceholderTab(
-                notebook,
-                "Expertise",
-                "Cet onglet sera construit dans un second temps, sur un principe "
-                "différent de celui du permis de location.",
-            ),
-            text="Expertise",
-        )
+        self._build_pages()
 
         # Vérification silencieuse des mises à jour au démarrage : ne dérange
         # l'utilisateur que si une version plus récente existe réellement.
         self.after(800, lambda: self._check_update(silent=True))
+
+    def _build_pages(self):
+        """Accueil (Expertise immobilière / Topographie), puis les bulles de
+        l'expertise qui ouvrent chacune une page de travail."""
+        nav = accueil.Navigateur(self)
+        nav.pack(fill="both", expand=True)
+        aller = lambda nom: (lambda: nav.afficher(nom))  # noqa: E731
+        save_cfg = lambda: config.save_config(self.cfg)  # noqa: E731
+
+        nav.ajouter("accueil", accueil.PageBulles(
+            nav, "Experts Nicolai", "Choisissez une section", [
+                dict(titre="Expertise immobilière", dessin=accueil.dessin_expertise_immobiliere, photo="expertise_immobiliere",
+                     commande=aller("expertise"), couleur="#dcebf9"),
+                dict(titre="Topographie", dessin=accueil.dessin_topographie, photo="topographie",
+                     commande=aller("topographie"), couleur="#e3f2e1", sous_titre="En préparation"),
+            ], diametre=260))
+
+        nav.ajouter("expertise", accueil.PageModule(
+            nav, "Expertise immobilière", aller("accueil"),
+            lambda parent: accueil.PageBulles(parent, "Expertise immobilière", "Que voulez-vous encoder ?", [
+                dict(titre="Entrées locatives", dessin=accueil.dessin_entree, photo="entree",
+                     commande=aller("entree"), couleur="#e3f2e1"),
+                dict(titre="Sorties locatives", dessin=accueil.dessin_sortie, photo="sortie",
+                     commande=aller("sortie"), couleur="#fdebd8"),
+                dict(titre="Expertises", dessin=accueil.dessin_expertises, photo="expertises",
+                     commande=aller("expertises"), couleur="#dcebf9"),
+                dict(titre="Permis de location", dessin=accueil.dessin_permis, photo="permis",
+                     commande=aller("permis"), couleur="#efe5f7"),
+            ], diametre=180)))
+
+        retour = aller("expertise")
+        nav.ajouter("entree", accueil.PageModule(
+            nav, "État des lieux — entrée", retour,
+            lambda parent: gui_etats.EntreeTab(parent, self.cfg, save_cfg)))
+        nav.ajouter("sortie", accueil.PageModule(
+            nav, "État des lieux — sortie", retour,
+            lambda parent: gui_etats.SortieTab(parent, self.cfg, save_cfg)))
+        nav.ajouter("expertises", accueil.PageModule(
+            nav, "Expertises", retour,
+            lambda parent: PlaceholderTab(
+                parent, "Expertise",
+                "Cette page sera construite dans un second temps, sur un principe "
+                "différent de celui du permis de location.")))
+        nav.ajouter("permis", accueil.PageModule(
+            nav, "Permis de location", retour,
+            lambda parent: PermisLocationTab(parent, self.cfg)))
+        nav.ajouter("topographie", accueil.PageModule(
+            nav, "Topographie", aller("accueil"),
+            lambda parent: PlaceholderTab(
+                parent, "Topographie",
+                "Cette section est en préparation : elle accueillera plus tard "
+                "les outils de topographie.")))
+
+        nav.afficher("accueil")
 
     def _build_menu(self):
         menubar = tk.Menu(self)
