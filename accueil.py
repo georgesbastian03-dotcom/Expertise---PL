@@ -1,9 +1,11 @@
 """Écran d'accueil : grandes bulles illustrées pour naviguer entre les sections.
 
-Les illustrations sont dessinées directement (Canvas tkinter) : aucun fichier
-image à fournir, rien à télécharger, tout fonctionne hors ligne.
+Chaque bulle affiche la photo de assets/accueil/ si elle existe (crédits dans
+assets/accueil/CREDITS.md), sinon un dessin fait directement (Canvas tkinter).
+Tout fonctionne hors ligne.
 """
 import os
+import sys
 import tkinter as tk
 from tkinter import ttk
 
@@ -136,20 +138,50 @@ def photo_ronde(chemin, diametre):
     return ImageTk.PhotoImage(fond)
 
 
+# --- Netteté sur les écrans agrandis ---------------------------------------
+
+def activer_haute_resolution():
+    """À appeler avant de créer la fenêtre. Sans cela, Windows affiche le
+    programme en basse résolution puis l'agrandit (125 %, 150 %…) : textes et
+    photos deviennent flous."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:  # noqa: BLE001  (Windows 7)
+            ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def echelle(widget):
+    """Facteur d'agrandissement de l'écran : 1.0 à 100 %, 1.5 à 150 %."""
+    try:
+        return max(1.0, widget.winfo_fpixels("1i") / 96)
+    except Exception:  # noqa: BLE001
+        return 1.0
+
+
 # --- Bulle cliquable -------------------------------------------------------
 
 class Bulle(tk.Canvas):
     """Grand cercle illustré, avec titre et sous-titre, qui réagit au survol."""
 
     def __init__(self, parent, titre, dessin, commande, couleur, sous_titre="", diametre=220, photo=None):
-        hauteur = diametre + 70
-        super().__init__(parent, width=diametre + 20, height=hauteur, bg=FOND,
+        # Écran à 125 % ou 150 % : on agrandit la bulle en vrais pixels plutôt
+        # que de laisser Windows étirer (et flouter) une petite image.
+        e = echelle(parent)
+        d = round(diametre * e)
+        m, h = round(10 * e), round(4 * e)
+        super().__init__(parent, width=d + 2 * m, height=d + round(70 * e), bg=FOND,
                          highlightthickness=0, cursor="hand2")
         self._commande = commande
         self._couleur = couleur
-        d = diametre
-        self._cercle = self.create_oval(10, 4, 10 + d, 4 + d, fill=couleur, outline="#d5dbe3", width=3)
-        cx, cy = 10 + d / 2, 4 + d / 2
+        self._bord = (max(1, round(3 * e)), max(1, round(5 * e)))
+        self._cercle = self.create_oval(m, h, m + d, h + d, fill=couleur, outline="#d5dbe3", width=self._bord[0])
+        cx, cy = m + d / 2, h + d / 2
         chemin = trouver_photo(photo) if photo else None
         self._image = photo_ronde(chemin, d) if chemin else None
         if self._image is not None:
@@ -158,12 +190,12 @@ class Bulle(tk.Canvas):
             self.itemconfigure(self._cercle, fill="")
         else:
             dessin(self, cx, cy, d / 200)
-        self.create_text(cx, d + 26, text=titre, fill=TEXTE, font=("Segoe UI", 13, "bold"),
-                         width=d + 10, justify="center")
+        self.create_text(cx, d + round(26 * e), text=titre, fill=TEXTE, font=("Segoe UI", 13, "bold"),
+                         width=d + m, justify="center")
         if sous_titre:
-            self.create_text(cx, d + 50, text=sous_titre, fill=TEXTE_DOUX, font=("Segoe UI", 9, "italic"))
-        self.bind("<Enter>", lambda _e: self.itemconfigure(self._cercle, outline="#1f6fb2", width=5))
-        self.bind("<Leave>", lambda _e: self.itemconfigure(self._cercle, outline="#d5dbe3", width=3))
+            self.create_text(cx, d + round(50 * e), text=sous_titre, fill=TEXTE_DOUX, font=("Segoe UI", 9, "italic"))
+        self.bind("<Enter>", lambda _e: self.itemconfigure(self._cercle, outline="#1f6fb2", width=self._bord[1]))
+        self.bind("<Leave>", lambda _e: self.itemconfigure(self._cercle, outline="#d5dbe3", width=self._bord[0]))
         self.bind("<Button-1>", lambda _e: self._commande())
 
 

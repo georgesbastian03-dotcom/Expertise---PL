@@ -1017,6 +1017,7 @@ class App(tk.Tk):
 
 
 def main():
+    accueil.activer_haute_resolution()
     app = App()
     app.mainloop()
 
