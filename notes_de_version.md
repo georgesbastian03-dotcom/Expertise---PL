@@ -1,3 +1,2 @@
-- Nouvel écran d'accueil : deux grandes bulles, Expertise immobilière et Topographie (en préparation).
-- Expertise immobilière ouvre quatre bulles : Entrées locatives, Sorties locatives, Expertises, Permis de location, avec un bouton « ← Retour ».
-- Photos possibles dans les bulles : déposer expertise_immobiliere, topographie, entree, sortie, expertises ou permis (.jpg/.png) dans le dossier assets/accueil du programme.
+- Correction : le programme ne démarrait plus sur un PC où la commande « python » renvoie vers le Microsoft Store. Le lanceur cherche désormais la vraie installation de Python (lanceur « py », puis emplacements habituels) et réinstalle les dépendances si elles manquent.
+- Toute erreur au démarrage s'affiche maintenant dans une fenêtre et est enregistrée dans erreur.log, au lieu de laisser le programme muet.

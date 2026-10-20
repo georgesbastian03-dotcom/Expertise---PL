@@ -21,7 +21,7 @@ API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 
 # Version de CE code. À incrémenter à chaque nouvelle version publiée sur
 # GitHub (le tag de la release doit être la même valeur, avec ou sans "v").
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 
 
 def _parse_version(v):
