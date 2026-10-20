@@ -1,2 +1,2 @@
-- Correction : le programme ne démarrait plus sur un PC où la commande « python » renvoie vers le Microsoft Store. Le lanceur cherche désormais la vraie installation de Python (lanceur « py », puis emplacements habituels) et réinstalle les dépendances si elles manquent.
-- Toute erreur au démarrage s'affiche maintenant dans une fenêtre et est enregistrée dans erreur.log, au lieu de laisser le programme muet.
+- Nouvelle icône du programme (maison et loupe), aussi dans la barre de titre.
+- Aide → « Créer l'icône sur le Bureau » : ajoute un raccourci « Experts Nicolai » qui ouvre le programme directement, sans fenêtre noire. L'ancien raccourci « Rapports de Visite » est remplacé.

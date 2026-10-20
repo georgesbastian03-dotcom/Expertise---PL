@@ -7,14 +7,21 @@ Set shell = CreateObject("WScript.Shell")
 dossier = fso.GetParentFolderName(WScript.ScriptFullName)
 bureau = shell.SpecialFolders("Desktop")
 
-Set raccourci = shell.CreateShortcut(bureau & "\Rapports de Visite - Experts Nicolai.lnk")
-raccourci.TargetPath = dossier & "\lancer_app.vbs"
+' Ancien nom du raccourci : supprimé pour ne pas avoir deux icônes.
+ancien = bureau & "\Rapports de Visite - Experts Nicolai.lnk"
+If fso.FileExists(ancien) Then fso.DeleteFile ancien
+
+' wscript.exe explicite : fonctionne même si les .vbs s'ouvrent avec un autre
+' programme sur ce PC. Aucune fenêtre noire n'apparaît.
+Set raccourci = shell.CreateShortcut(bureau & "\Experts Nicolai.lnk")
+raccourci.TargetPath = "wscript.exe"
+raccourci.Arguments = """" & dossier & "\lancer_app.vbs"""
 raccourci.WorkingDirectory = dossier
 raccourci.IconLocation = dossier & "\icone.ico"
-raccourci.Description = "Rapports de Visite - Experts Nicolai"
+raccourci.Description = "Experts Nicolai - Expertise immobiliere et topographie"
 raccourci.Save
 
 MsgBox "Raccourci cree sur le Bureau !" & Chr(10) & Chr(10) & _
     "Vous pouvez desormais lancer le programme directement depuis cette icone " & _
     "(vous pouvez aussi l'epingler a la barre des taches en faisant un clic droit dessus).", _
-    64, "Rapports de Visite - Experts Nicolai"
+    64, "Experts Nicolai"
