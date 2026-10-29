@@ -349,3 +349,19 @@ rapports_permis_location/
   utilisés par la macro VBA.
 - **L'export PDF échoue** : il nécessite Word installé sur ce PC. Le
   `.docx` est de toute façon généré même si le PDF échoue.
+
+## Entrées locatives — nouveau modèle 2027 et AISBW
+
+Le programme reconnaît tout seul le modèle du Word de la dactylo :
+
+- **Modèle 2027 (général ou Notre Maison)** : les photos collées par la dactylo sont relues. Dans « Choisir les photos… », indiquez pour chaque photo son rôle (*Pièce*, *Clés*, *Compteur*, *Exclure*) et tournez-la si besoin (↻). La finalisation applique le rapport de référence 2026.3384 : grille de 8 photos par page, photo des clés en haut à droite de la page « Clés, compteurs et entretiens », photos des compteurs sous leur relevé, cases « Repris ci-dessous » / « Voir photos » cochées, bailleur réparé (bug du modèle qui effaçait son nom), date de clôture figée, signature, initiales, expert et qualité.
+- **Ancien modèle** : fonctionnement inchangé (2 photos par page).
+- **Entrée AISBW** (formulaire PDF rempli sur place, pas de Word) : le PDF est renommé « 2026.xxxx ELLE Commune Rue n° GB.pdf » sans toucher à son contenu, et le reportage photos est créé depuis le modèle `gabarit_entree/Reportage photos AISBW (vierge).docx` (en-tête avec l'adresse et « 2026.xxxx / GB », 8 photos par page), en .docx et en .pdf.
+
+## Expertises
+
+1. Choisissez le dossier du n° et, une seule fois, le modèle vierge « 2026.0000 ABEX Calculs 1056 2026 Officiel.xlsx ».
+2. Remplissez les données et les surfaces (formules acceptées, ex. `=96,22*1,15`), puis **Créer l'ABEX** : seul l'onglet Données est rempli, Excel recalcule le reste à l'ouverture.
+3. **Choisir les photos…** : une photo *Façade (garde)*, les autres en *Planche* (planches 3 × 3), la capture du calendrier en *Exclure*. **Placer les photos dans le Word** écrit une nouvelle version « v2 » du rapport à côté de l'original.
+
+Aucun fichier existant n'est écrasé dans un dossier d'expertise.
