@@ -1,7 +1,7 @@
 """Interface graphique (tkinter, inclus avec Python — aucune installation
 supplémentaire requise pour l'affichage). Un onglet fonctionnel pour le
 permis de location, onglets « État des lieux — entrée » et « — sortie »
-(voir gui_etats.py), onglet Expertise réservé.
+(voir gui_etats.py) et « Expertises » (voir gui_expertise.py).
 """
 import os
 import shutil
@@ -19,6 +19,7 @@ import engine
 import history
 import plans
 import gui_etats
+import gui_expertise
 import updater
 
 
@@ -905,10 +906,7 @@ class App(tk.Tk):
             lambda parent: gui_etats.SortieTab(parent, self.cfg, save_cfg)))
         nav.ajouter("expertises", accueil.PageModule(
             nav, "Expertises", retour,
-            lambda parent: PlaceholderTab(
-                parent, "Expertise",
-                "Cette page sera construite dans un second temps, sur un principe "
-                "différent de celui du permis de location.")))
+            lambda parent: gui_expertise.ExpertiseTab(parent, self.cfg, save_cfg)))
         nav.ajouter("permis", accueil.PageModule(
             nav, "Permis de location", retour,
             lambda parent: PermisLocationTab(parent, self.cfg)))

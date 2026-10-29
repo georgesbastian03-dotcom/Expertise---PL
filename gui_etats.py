@@ -10,6 +10,8 @@ import tkinter as tk
 from datetime import date
 from tkinter import filedialog, messagebox, ttk
 
+import entree2027 as e27
+import entree_aisbw as aisbw
 import entree_engine as ee
 import signature
 import sortie_engine as se
@@ -700,6 +702,100 @@ class PhotoPicker(tk.Toplevel):
         self.destroy()
 
 
+class RolePhotoPicker(tk.Toplevel):
+    """Grille de vignettes avec, pour chaque photo, son rôle dans le rapport
+    (pièce / clés / compteur / exclure) et un bouton pour la tourner d'un
+    quart de tour. Modèle 2027 et reportage AISBW."""
+
+    COLS = 5
+
+    def __init__(self, parent, items, on_done, roles=e27.ROLES, consigne="", labels=None):
+        super().__init__(parent)
+        self.title("Photos du rapport")
+        self.geometry("1040x760")
+        self.transient(parent)
+        self.on_done = on_done
+        self.items = [dict(it) for it in items]  # {"path", "role", "note", "rot"}
+        self.roles = list(roles)
+        self.labels = labels or e27.ROLE_LABELS
+        self.vars, self.lbls = [], []
+        self._imgs = {}
+        top = ttk.Frame(self, padding=(10, 8))
+        top.pack(fill="x")
+        ttk.Label(top, wraplength=1000, justify="left", foreground=GREY, text=consigne or (
+            "Choisissez le rôle de chaque photo : « Clés » (placée en haut à droite de la page clés/compteurs), "
+            "« Compteur » (ligne sous le relevé des compteurs), « Pièce » (grille de 8 photos par page) ou « Exclure ». "
+            "↻ tourne la photo d'un quart de tour. Les doublons probables sont déjà sur « Exclure » (à vérifier).")
+        ).pack(anchor="w")
+        self.count_var = tk.StringVar()
+        ttk.Label(top, textvariable=self.count_var, font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(4, 0))
+        area = ScrollArea(self)
+        area.pack(fill="both", expand=True)
+        bot = ttk.Frame(self, padding=10)
+        bot.pack(fill="x")
+        ttk.Button(bot, text="Valider", command=self._done).pack(side="right")
+        labels = [self.labels[r] for r in self.roles]
+        for i, it in enumerate(self.items):
+            cell = ttk.Frame(area.body, padding=4)
+            cell.grid(row=i // self.COLS, column=i % self.COLS, sticky="n")
+            lbl = ttk.Label(cell, text="…")
+            lbl.pack()
+            lbl.bind("<Double-1>", lambda _e, p=it["path"]: open_path(p))
+            row = ttk.Frame(cell)
+            row.pack()
+            ttk.Label(row, text=f"{i + 1}").pack(side="left", padx=(0, 4))
+            var = tk.StringVar(value=self.labels.get(it["role"], labels[0]))
+            cb = ttk.Combobox(row, textvariable=var, values=labels, state="readonly", width=10)
+            cb.pack(side="left")
+            var.trace_add("write", lambda *_a: self._count())
+            ttk.Button(row, text="↻", width=3, command=lambda k=i: self._rotate(k)).pack(side="left", padx=(4, 0))
+            if it.get("note"):
+                ttk.Label(cell, text=it["note"], foreground=WARN_ORANGE, wraplength=170, justify="center").pack()
+            self.vars.append(var)
+            self.lbls.append(lbl)
+            self._load_thumb(i)
+        self._count()
+        self.grab_set()
+
+    def _load_thumb(self, i):
+        from PIL import ImageTk
+
+        it = self.items[i]
+        lbl = self.lbls[i]
+
+        def done(pil):
+            try:
+                img = ImageTk.PhotoImage(pil)
+                self._imgs[i] = img
+                lbl.configure(image=img, text="")
+            except Exception:  # noqa: BLE001
+                pass
+
+        run_async(self, lambda: e27.thumbnail(it["path"], it.get("rot", 0)), done,
+                  lambda _e: lbl.configure(text="(aperçu impossible)"))
+
+    def _rotate(self, i):
+        self.items[i]["rot"] = (self.items[i].get("rot", 0) + 90) % 360
+        self._load_thumb(i)
+
+    def _role(self, i):
+        lab = self.vars[i].get()
+        return next((r for r, l in self.labels.items() if l == lab), self.roles[0])
+
+    def _count(self):
+        n = {}
+        for i in range(len(self.items)):
+            r = self._role(i)
+            n[r] = n.get(r, 0) + 1
+        self.count_var.set(" • ".join(f"{self.labels[r]} : {n.get(r, 0)}" for r in self.roles))
+
+    def _done(self):
+        for i, it in enumerate(self.items):
+            it["role"] = self._role(i)
+        self.on_done(self.items)
+        self.destroy()
+
+
 class DocViewer(tk.Toplevel):
     """Visionneuse du bail / de l'OM, pour contrôler les coordonnées."""
 
@@ -770,7 +866,8 @@ class EntreeTab(ttk.Frame):
         self.cfg = cfg
         self.save_cfg = save_cfg
         self.folder = None
-        self.photo_items = []      # [(path, checked, note)]
+        self.photo_items = []      # ancien modèle : [(path, checked, note)] ; 2027 / AISBW : [dict]
+        self.kind = "ancien"       # « ancien », « 2027 », « 2027-NM » ou « aisbw »
         self.parties = []          # read_parties()
         self.party_widgets = []    # [(Text, BooleanVar, status_var)]
         self.doc_results = {}
@@ -793,10 +890,12 @@ class EntreeTab(ttk.Frame):
     def _build(self):
         R = self.R
         ttk.Label(R, wraplength=780, justify="left", foreground=GREY, text=(
-            "Finalise le Word renvoyé par le bureau de dactylographie : photos rangées dans « Photos » et injectées "
-            "2 par page sous le titre PHOTOGRAPHIES, coordonnées des parties contrôlées avec le bail et l'OM, "
-            "date de clôture du jour et signature, puis renommage. Le texte dicté n'est jamais modifié "
-            "(les repères « 12*42 » restent). Le Word d'origine est écrasé, pas de PDF.")).pack(anchor="w", pady=(0, 10))
+            "Finalise le Word renvoyé par le bureau de dactylographie. Nouveau modèle 2027 (général ou Notre Maison) : "
+            "photos en grille de 8 par page, photo des clés à côté du titre, compteurs sous leur relevé, cases cochées, "
+            "bailleur réparé, date de clôture figée et signature, comme le rapport de référence 2026.3384. Ancien modèle : "
+            "photos 2 par page. Entrée AISBW : formulaire PDF renommé et reportage photos créé (.docx + .pdf). "
+            "Le texte dicté n'est jamais modifié (les repères « 12*42 » restent). Le Word d'origine est écrasé, "
+            "après une copie hors Dropbox.")).pack(anchor="w", pady=(0, 10))
 
         f = section(R, "1. Dossier")
         f.columnconfigure(1, weight=1)
@@ -817,6 +916,22 @@ class EntreeTab(ttk.Frame):
         self.info_var = tk.StringVar()
         ttk.Label(f, textvariable=self.info_var, foreground=GREY, wraplength=760, justify="left").grid(
             row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        # Entrée AISBW : formulaire PDF rempli sur place + en-tête du reportage
+        self.form_var = tk.StringVar()
+        self.formname_var = tk.StringVar()
+        self.header_var = tk.StringVar()
+        self.aisbw_widgets = []
+        for r, (lab, widget) in enumerate((
+                ("Formulaire AISBW :", ttk.Combobox(f, textvariable=self.form_var, state="readonly")),
+                ("Renommer en :", ttk.Entry(f, textvariable=self.formname_var)),
+                ("Adresse (en-tête) :", ttk.Entry(f, textvariable=self.header_var))), start=4):
+            lw = ttk.Label(f, text=lab)
+            lw.grid(row=r, column=0, sticky="w", pady=(6, 0))
+            widget.grid(row=r, column=1, sticky="we", padx=6, pady=(6, 0))
+            self.aisbw_widgets += [lw, widget]
+            if r == 4:
+                self.form_combo = widget
+        self._show_aisbw(False)
 
         f = section(R, "2. Photos")
         self.photo_var = tk.StringVar(value="—")
@@ -861,6 +976,18 @@ class EntreeTab(ttk.Frame):
         self.progress_var = tk.StringVar()
         ttk.Label(R, textvariable=self.progress_var, foreground=GREY, wraplength=780, justify="left").pack(anchor="w")
         self.final_path = None
+
+    def _show_aisbw(self, on):
+        for w in self.aisbw_widgets:
+            if on:
+                w.grid()
+            else:
+                w.grid_remove()
+
+    def _model_label(self):
+        return {"ancien": "ancien modèle (photos 2 par page)", "2027": "nouveau modèle 2027 — général",
+                "2027-NM": "nouveau modèle 2027 — Notre Maison", "aisbw": "entrée AISBW (formulaire PDF + reportage photos)"
+                }.get(self.kind, self.kind)
 
     # -- dossier -------------------------------------------------------------
     def _choose_folder(self):
@@ -907,11 +1034,36 @@ class EntreeTab(ttk.Frame):
             f"{len(names)} Word trouvé(s) • {len(inv['root_images'])} photo(s) en vrac • "
             f"{len(inv['photo_images'])} dans « Photos » • documents : "
             + (", ".join(os.path.basename(p) for p in inv["documents"]) or "aucun bail / OM détecté"))
+        self.kind = "ancien"
+        self.photo_items = ee.classify_photos(inv["photo_images"] + inv["root_images"])
+        if aisbw.looks_like_aisbw(folder, inv):
+            self._load_aisbw(folder)
+            return
         if not names:
             messagebox.showwarning("Word introuvable", "Aucun fichier Word (.docx) dans ce dossier.")
-        self.photo_items = ee.classify_photos(inv["photo_images"] + inv["root_images"])
+        self._show_aisbw(False)
         self._update_photo_label()
         self._load_parties()
+
+    def _load_aisbw(self, folder):
+        self.kind = "aisbw"
+        self._show_aisbw(True)
+        forms = aisbw.form_candidates(folder)
+        self.form_paths = [p for p, _n in forms]
+        self.form_combo.configure(values=[f"{os.path.basename(p)} ({n} p.)" if n else os.path.basename(p) for p, n in forms])
+        if forms:
+            self.form_combo.current(0)
+        self.formname_var.set(aisbw.final_pdf_name(folder) or "")
+        self.header_var.set(aisbw.default_header_address(folder))
+        self.photo_items = e27.mark_duplicates(e27.folder_photo_items(folder))
+        self.info_var.set(self.info_var.get() + f"\nModèle : {self._model_label()}. Complétez l'adresse de l'en-tête "
+                          "(code postal et commune).")
+        self._update_photo_label()
+        for w in self.parties_frame.winfo_children():
+            w.destroy()
+        self.party_widgets, self.parties = [], []
+        ttk.Label(self.parties_frame, foreground=GREY, text=(
+            "Entrée AISBW : le formulaire est rempli sur place, son contenu n'est pas modifié.")).pack(anchor="w")
 
     def _docx_path(self):
         n = self.docx_var.get()
@@ -930,6 +1082,18 @@ class EntreeTab(ttk.Frame):
         self.progress_var.set(f"{len(moved)} photo(s) déplacée(s) dans « Photos ».")
 
     def _update_photo_label(self):
+        if self.kind != "ancien":
+            roles = {}
+            for it in self.photo_items:
+                roles[it["role"]] = roles.get(it["role"], 0) + 1
+            txt = " • ".join(f"{e27.ROLE_LABELS[r]} : {roles.get(r, 0)}" for r in e27.ROLES if roles.get(r) or r == "piece")
+            notes = [f"photo {i + 1} : {it['note']}" for i, it in enumerate(self.photo_items) if it.get("note")]
+            if notes:
+                txt += "\nÀ vérifier : " + " ; ".join(notes[:4]) + (" …" if len(notes) > 4 else "")
+            if self.kind.startswith("2027") and not any(it["role"] == "cles" for it in self.photo_items):
+                txt += "\nDésignez la photo des clés et celles des compteurs (bouton « Choisir les photos… »)."
+            self.photo_var.set(txt or "Aucune photo.")
+            return
         n = sum(1 for _p, c, _n in self.photo_items if c)
         notes = [f"{os.path.basename(p)} : {nt}" for p, _c, nt in self.photo_items if nt]
         txt = f"{n} photo(s) retenue(s) sur {len(self.photo_items)}."
@@ -941,6 +1105,18 @@ class EntreeTab(ttk.Frame):
     def _pick_photos(self):
         if not self.photo_items:
             messagebox.showinfo("Photos", "Aucune photo dans ce dossier.")
+            return
+        if self.kind != "ancien":
+            def done_roles(items):
+                self.photo_items = items
+                self._update_photo_label()
+
+            if self.kind == "aisbw":
+                RolePhotoPicker(self, self.photo_items, done_roles, roles=("piece", "exclure"), consigne=(
+                    "Photos du reportage AISBW (grille de 8 par page, dans l'ordre). Mettez sur « Exclure » la capture "
+                    "Odoo et les doublons ; ↻ tourne la photo d'un quart de tour."))
+            else:
+                RolePhotoPicker(self, self.photo_items, done_roles)
             return
 
         def done(items):
@@ -957,6 +1133,12 @@ class EntreeTab(ttk.Frame):
         p = self._docx_path()
         if not p:
             return
+        self.kind = e27.model_kind(p)
+        if self.kind.startswith("2027"):
+            self._load_2027(p)
+            return
+        self.photo_items = ee.classify_photos(self.inv["photo_images"] + self.inv["root_images"])
+        self._update_photo_label()
         try:
             self.parties = ee.read_parties(p)
         except Exception as exc:  # noqa: BLE001
@@ -983,6 +1165,49 @@ class EntreeTab(ttk.Frame):
         ttk.Label(self.parties_frame, foreground=GREY, text=(
             "Corrigez directement le texte si vous êtes sûr après vérification ; cochez « Surligner » en cas de doute "
             "ou de différence entre le bail et l'OM.")).pack(anchor="w", pady=(4, 0))
+
+    def _load_2027(self, p):
+        base = self.info_var.get().split("\nModèle :")[0]
+        self.info_var.set(base + f"\nModèle : {self._model_label()}.")
+        try:
+            self.parties = e27.read_parties(p)
+        except Exception as exc:  # noqa: BLE001
+            ttk.Label(self.parties_frame, text=f"Lecture du Word impossible : {exc}", foreground=WARN_ORANGE).pack(anchor="w")
+            return
+        for part in self.parties:
+            row = ttk.Frame(self.parties_frame)
+            row.pack(fill="x", pady=3)
+            ttk.Label(row, text=part["role"], width=14, font=("Segoe UI", 10, "bold")).pack(side="left", anchor="n")
+            txt = tk.Text(row, height=2, wrap="word", font=("Segoe UI", 10))
+            txt.insert("1.0", part["texte"])
+            if not part["editable"]:
+                txt.configure(state="disabled", background="#f0f0f0")
+            txt.pack(side="left", fill="x", expand=True)
+            right = ttk.Frame(row)
+            right.pack(side="left", padx=6, anchor="n")
+            hv = tk.BooleanVar(value=False)
+            ttk.Checkbutton(right, text="Surligner en jaune", variable=hv).pack(anchor="w")
+            st = tk.StringVar()
+            ttk.Label(right, textvariable=st, wraplength=220, justify="left").pack(anchor="w")
+            self.party_widgets.append((txt, hv, st))
+        ttk.Label(self.parties_frame, foreground=GREY, text=(
+            "Noms : corrigez directement si vous êtes sûr (page de garde et page 2 sont mises à jour ensemble). "
+            "Domiciles : à corriger dans Word ; cochez « Surligner » en cas de doute.")).pack(anchor="w", pady=(4, 0))
+        # Photos déjà collées dans le Word par la dactylo (sinon celles du dossier)
+        self.photo_var.set("Lecture des photos du Word…")
+        folder = self.folder
+
+        def work():
+            items = e27.extract_word_photos(p)
+            if not items:
+                items = e27.folder_photo_items(folder)
+            return e27.mark_duplicates(items)
+
+        def done(items):
+            self.photo_items = items
+            self._update_photo_label()
+
+        run_async(self, work, done, lambda e: self.photo_var.set(f"Lecture des photos impossible : {e}"))
 
     # -- documents -----------------------------------------------------------
     def _refresh_ocr_status(self):
@@ -1064,6 +1289,10 @@ class EntreeTab(ttk.Frame):
 
     # -- finalisation ----------------------------------------------------------
     def _finalize(self):
+        if self.kind == "aisbw":
+            return self._finalize_aisbw()
+        if self.kind.startswith("2027"):
+            return self._finalize_2027()
         p = self._docx_path()
         if not p or not os.path.exists(p):
             messagebox.showwarning("Word", "Choisissez le dossier et le Word à finaliser.")
@@ -1118,6 +1347,100 @@ class EntreeTab(ttk.Frame):
             messagebox.showerror("Finalisation impossible", str(exc))
 
         run_async(self, work, done, failed)
+
+    def _run_finalize(self, work, msg_ok):
+        self.go_btn.configure(state="disabled")
+
+        def progress(msg):
+            self._pmsg = msg  # affiché par _tick (jamais d'appel Tk depuis le thread)
+
+        def done(res):
+            self._pmsg = None
+            self.go_btn.configure(state="normal")
+            self.final_path = res.get("path") or res.get("docx")
+            self.open_btn.configure(state="normal")
+            msg = msg_ok(res)
+            if res.get("remarques"):
+                msg += "\n\nÀ noter :\n• " + "\n• ".join(res["remarques"])
+            self.progress_var.set(msg)
+            self._load_folder(self.folder)
+            if messagebox.askyesno("Terminé", msg + "\n\nOuvrir le Word pour vérifier ?"):
+                open_path(self.final_path)
+
+        def failed(exc):
+            self._pmsg = None
+            self.go_btn.configure(state="normal")
+            self.progress_var.set("")
+            messagebox.showerror("Finalisation impossible", str(exc))
+
+        run_async(self, lambda: work(progress), done, failed)
+
+    def _finalize_2027(self):
+        p = self._docx_path()
+        if not p or not os.path.exists(p):
+            messagebox.showwarning("Word", "Choisissez le dossier et le Word à finaliser.")
+            return
+        items = list(self.photo_items)
+        n = sum(1 for it in items if it["role"] != "exclure")
+        if not any(it["role"] == "cles" for it in items) and not messagebox.askyesno(
+                "Photo des clés", "Aucune photo n'est désignée comme photo des clés. Continuer quand même ?"):
+            return
+        updates = []
+        for (txt, hv, _st), part in zip(self.party_widgets, self.parties):
+            texte = txt.get("1.0", "end").strip() if part["editable"] else None
+            updates.append({"key": part["key"], "texte": texte, "surligner": hv.get()})
+        ensure_signature(self)
+        newname = self.newname_var.get().strip()
+        if newname and not newname.lower().endswith(".docx"):
+            newname += ".docx"
+        if not messagebox.askyesno("Confirmer", f"Le Word « {os.path.basename(p)} » ({self._model_label()}) va être "
+                                   f"finalisé et écrasé ({n} photo(s)), puis renommé en « {newname} ».\n\n"
+                                   "Une copie de l'original est d'abord gardée hors Dropbox "
+                                   "(Aide → Ouvrir les sauvegardes).\n\nContinuer ?"):
+            return
+        ini = (self.cfg.get("mes_initiales") or "GB").upper()
+        date_cl = self.date_var.get().strip()
+        self._run_finalize(
+            lambda progress: e27.finalize(p, items, date_cloture=date_cl, parties_updates=updates, initiales=ini,
+                                          expert=self.cfg.get("expert_nom") or e27.EXPERT_NOM,
+                                          qualite=self.cfg.get("expert_qualite") or e27.EXPERT_QUALITE,
+                                          rename_to=newname or None, progress_cb=progress),
+            lambda res: (f"Word finalisé : {os.path.basename(res['path'])} ({res['photos']} photos).\n"
+                         f"Copie de l'original avant modification : {res.get('sauvegarde')}"))
+
+    def _finalize_aisbw(self):
+        if not self.folder:
+            return
+        idx = self.form_combo.current()
+        form = self.form_paths[idx] if getattr(self, "form_paths", None) and idx >= 0 else None
+        newname = self.formname_var.get().strip()
+        if newname and not newname.lower().endswith(".pdf"):
+            newname += ".pdf"
+        adresse = self.header_var.get().strip()
+        items = list(self.photo_items)
+        n = sum(1 for it in items if it["role"] != "exclure")
+        quoi = (f"• le formulaire « {os.path.basename(form)} » sera renommé en « {newname} » (contenu inchangé) ;\n"
+                if form and newname else "• aucun formulaire PDF à renommer ;\n")
+        if not messagebox.askyesno("Confirmer", "Entrée AISBW :\n" + quoi +
+                                   f"• le reportage photos ({n} photo(s), en-tête « {adresse} ») sera créé en .docx et .pdf."
+                                   "\n\nContinuer ?"):
+            return
+        ini = (self.cfg.get("mes_initiales") or "GB").upper()
+        folder = self.folder
+
+        def work(progress):
+            res = aisbw.build_reportage(folder, items, adresse, initiales=ini, progress_cb=progress)
+            if form and newname:
+                try:
+                    res["formulaire"] = aisbw.rename_form(form, newname)
+                except Exception as exc:  # noqa: BLE001
+                    res["remarques"].append(str(exc))
+            return res
+
+        self._run_finalize(work, lambda res: (
+            f"Reportage photos créé : {os.path.basename(res['docx'])} ({res['photos']} photos)"
+            + (" + PDF" if res.get("pdf") else "") + "."
+            + (f"\nFormulaire renommé : {os.path.basename(res['formulaire'])}" if res.get("formulaire") else "")))
 
     def _open_word(self):
         if self.final_path and os.path.exists(self.final_path):
@@ -1238,6 +1561,20 @@ class EntreeBatchWindow(tk.Toplevel):
             return
         i = int(sel[0])
         job = self.jobs[i]
+        if e27.is_model_2027(job["docx"]):
+            def done_roles(items):
+                job["items"] = items
+                job["photos"] = [it["path"] for it in items if it["role"] != "exclure"]
+                self._refresh()
+
+            if job.get("items") is not None:
+                RolePhotoPicker(self, job["items"], done_roles)
+            else:
+                self.status.set("Lecture des photos du Word…")
+                run_async(self, lambda: e27.auto_items(job["folder"], job["docx"]),
+                          lambda items: (self.status.set(""), RolePhotoPicker(self, items, done_roles)),
+                          lambda e: messagebox.showerror("Photos", str(e), parent=self))
+            return
         inv = ee.scan_folder(job["folder"])
         items = ee.classify_photos(inv["photo_images"] + inv["root_images"])
         if job["photos"] is not None:

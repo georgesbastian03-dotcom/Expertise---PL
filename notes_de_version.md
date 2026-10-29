@@ -1,2 +1,4 @@
-- Nouvelle icône du programme (maison et loupe), aussi dans la barre de titre.
-- Aide → « Créer l'icône sur le Bureau » : ajoute un raccourci « Experts Nicolai » qui ouvre le programme directement, sans fenêtre noire. L'ancien raccourci « Rapports de Visite » est remplacé.
+- Entrées locatives : prise en charge du nouveau modèle Word 2027 (général et Notre Maison), comme le rapport de référence 2026.3384 : photos en grille de 8 par page, photo des clés à côté du titre, photos des compteurs sous leur relevé, cases cochées, bailleur réparé (bug du modèle), date de clôture figée, signature, noms des parties en gras.
+- Entrées locatives : écran de choix des photos avec leur rôle (pièce, clés, compteur, exclure) et rotation d'un quart de tour ; doublons signalés.
+- Entrées AISBW : le formulaire PDF est renommé et le reportage photos est créé (.docx + .pdf) depuis le modèle AISBW.
+- Nouvel onglet Expertises : ABEX créé depuis le modèle vierge officiel (onglet Données) et photos placées dans le rapport Word (façade + planches 3 × 3), toujours dans une nouvelle version.

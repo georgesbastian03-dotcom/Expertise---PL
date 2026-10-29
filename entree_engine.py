@@ -749,6 +749,10 @@ def docx_needs_finalize(docx_path):
             xml = z.read("word/document.xml").decode("utf-8", errors="ignore")
     except Exception:  # noqa: BLE001
         return False
+    import entree2027
+
+    if entree2027.is_model_2027(docx_path, xml):
+        return entree2027.needs_finalize(docx_path)
     plain = re.sub(r"<[^>]+>", "", xml)
     if "PHOTOGRAPHIES" not in plain:
         return False
@@ -848,6 +852,28 @@ def process_batch(jobs, date_cloture=None, tighten_layout=True, progress_cb=None
 
         res = {"folder": job["folder"], "ok": False, "path": None, "constats": [], "erreur": None}
         try:
+            import entree2027
+
+            if entree2027.is_model_2027(job["docx"]):
+                items = job.get("items")
+                if items is None:
+                    say("Lecture des photos du Word…")
+                    items = entree2027.auto_items(job["folder"], job["docx"], progress_cb=lambda m: say(m))
+                    doublons = [str(i + 1) for i, it in enumerate(items) if it.get("note", "").startswith("doublon")]
+                    if doublons:
+                        res["constats"].append("Doublons probables exclus : photo(s) " + ", ".join(doublons))
+                    if not any(it["role"] == "cles" for it in items):
+                        res["constats"].append("Photo des clés non trouvée dans la rubrique clés : à placer à la main.")
+                say("Contrôle des parties (bail)…")
+                updates, constats = entree2027.auto_parties(job["folder"], job["docx"], progress_cb=lambda m: say(m))
+                res["constats"] += constats
+                say("Finalisation du Word (modèle 2027)…")
+                out = entree2027.finalize(job["docx"], items, date_cloture=date_cloture, parties_updates=updates,
+                                          rename_to=job.get("nom_final"), progress_cb=lambda m: say(m))
+                res.update(ok=True, path=out["path"], sauvegarde=out.get("sauvegarde"))
+                res["constats"] += out["remarques"]
+                results.append(res)
+                continue
             say("Rangement des photos…")
             ranger_photos(job["folder"])
             photos = job.get("photos")
