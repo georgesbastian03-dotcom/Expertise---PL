@@ -109,7 +109,8 @@ class ExpertiseTab(ttk.Frame):
             self.surf_vars[cell] = v
         ttk.Label(f, foreground=GREY, wraplength=760, justify="left", text=(
             "Maison : SEM calculée depuis les cotes extérieures du croquis, sans coefficient. Appartement : "
-            "SIM × 1,15 avec la formule visible (ex. =96,22*1,15). Combles / étage mansardé : jamais calculés, "
+            "SEM dans l'ABEX = SIM × 1,15 avec la formule visible (ex. =96,22*1,15) OU directement la surface PEB, "
+            "déjà une SEM (jamais de +15 % sur le PEB) ; le Word affiche la SIM. Combles / étage mansardé : jamais calculés, "
             "reprenez uniquement les m² réels relevés par GB sous 2,10 m (sinon laissez vide et surlignez en jaune "
             "dans le Word). Dans le Word : surfaces arrondies au m² le plus proche (jamais tronquées), annexes pas "
             "reportées d'office.")).grid(row=7, column=0, columnspan=6, sticky="w")
