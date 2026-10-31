@@ -1,1 +1,2 @@
 - Permis de location : en mode collectif (communautaire + chambres), la colonne « Détect » de l'Excel est maintenant reprise dans les rapports (valeur de la ligne Communautaire, ou celle des chambres si elle est vide).
+- Expertises : nouvelle section « Référence cadastrale ». Le cadastre officiel fait foi (CADGIS avant CADMAP) : collez l'encadré WalOnMap ou CADGIS pour remplir la CaPaKey, ses parties et la superficie (reprise en G42). La parcelle et la superficie des notes ou de l'OM servent seulement à comparer : un écart est signalé, et le cadastre est retenu.
