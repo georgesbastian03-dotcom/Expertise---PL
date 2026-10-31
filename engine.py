@@ -429,6 +429,22 @@ def unit_label(unit, m):
     return {"adresse": adresse, "n": n, "bte": bte, "file_base": file_base}
 
 
+def detect_collectif(unit, m) -> str:
+    """Colonne « Détect » d'un logement collectif : valeur de la ligne
+    « Communautaire » ; si elle est vide, valeur(s) des chambres (une seule
+    si elles sont toutes identiques, sinon les différentes valeurs séparées
+    par « / »)."""
+    v = str(cell(unit["commun_row"], m, "detect") or "").strip()
+    if v:
+        return v
+    vals = []
+    for c in unit["chambres"]:
+        x = str(cell(c, m, "detect") or "").strip()
+        if x and x not in vals:
+            vals.append(x)
+    return " / ".join(vals)
+
+
 def build_data_spec_collectif(unit, m, extra_scalars=None):
     row = unit["commun_row"]
     chambres = unit["chambres"]
@@ -458,6 +474,7 @@ def build_data_spec_collectif(unit, m, extra_scalars=None):
         "Date de clôture": date_cloture_val,
         "Dâte de clôture": date_cloture_val,  # alias, coquille présente dans un gabarit
         "Etage": str(cell(row, m, "etage") or "").strip(),
+        "Détect": detect_collectif(unit, m),
         "Rem ventilation": str(cell(row, m, "remVent") or "").strip(),
         "Rem Humidité": str(cell(row, m, "remHum") or "").strip(),
         "Rem Electricité": str(cell(row, m, "remElec") or "").strip(),
