@@ -57,11 +57,15 @@ CHAMPS = [
     ("annee_achat", "G5", "Année d'achat", "nombre"),
     ("rc", "G7", "RC de base", "nombre"),
     ("annee_construction", "G8", "Année de construction", "nombre"),
-    ("terrain_m2", "G42", "Superficie CADASTRALE du terrain (m²)", "nombre"),
+    ("terrain_m2", "G42", "Superficie du terrain (m²) — valeur écrite", "nombre"),
 ]
 # Référence cadastrale (WalOnMap, encadré « Référence cadastrale », ou
 # CADGIS). Règle GB 31/10 : le cadastre officiel l'emporte sur les notes,
-# l'OM et le client ; CADGIS l'emporte sur CADMAP en cas de divergence.
+# l'OM et le client pour IDENTIFIER la parcelle ; CADGIS l'emporte sur
+# CADMAP en cas de divergence. La superficie est toujours une valeur ÉCRITE
+# et officielle (CADGIS, plan, notes), jamais une surface calculée sur le
+# contour CADMAP ; si plusieurs documents diffèrent, on retient la valeur qui
+# revient le plus souvent (exemple 3490 : 8 a 23, et non 818 m² calculés).
 CADASTRE = [
     ("capakey", "CaPaKey"),
     ("division", "Division"),
@@ -69,12 +73,13 @@ CADASTRE = [
     ("radical", "Radical"),
     ("exposant", "Exposant"),
     ("puissance", "Puissance"),
-    ("source_cad", "Source (CADGIS / WalOnMap / CADMAP)"),
+    ("source_cad", "Source de la parcelle (CADGIS / WalOnMap / CADMAP)"),
+    ("source_sup", "Source de la superficie (CADGIS / plan / notes)"),
 ]
 # Ce que disent les notes, l'OM ou le client : seulement pour comparer.
 NOTES_CAD = [
     ("parcelle_notes", "Parcelle selon les notes / l'OM (ex. A 53)"),
-    ("terrain_notes", "Superficie selon les notes / l'OM (m²)"),
+    ("terrain_notes", "Superficie selon un autre document (m²)"),
 ]
 # Surfaces (SEM) par niveau : lignes C11 à C32 du modèle
 SURFACES = [
@@ -263,9 +268,11 @@ def parse_walonmap(txt):
             m = re.search(label + r"\s*[:=]?\s*([0-9A-Za-z_]+)", txt or "", re.I)
             if m:
                 out[key] = m.group(1).upper()
-    m = re.search(r"superficie[^\n:]*[:=]?\s*([^\n]+)", txt or "", re.I)
+    m = re.search(r"(?:superficie|surface)[^\n:]*[:=]?\s*([^\n]+)", txt or "", re.I)
     sup = parse_superficie(m.group(1) if m else txt)
-    if sup is not None:
+    if sup is not None and re.search(r"calcul", (m.group(0) if m else txt) or "", re.I):
+        out["sup_calculee"] = True  # surface calculée sur le contour : jamais reprise
+    elif sup is not None:
         out["terrain_m2"] = ("%g" % sup).replace(".", ",")
     return out
 
@@ -289,7 +296,7 @@ def _norm_parcelle(txt):
 
 def ecarts_cadastre(data):
     """Écarts entre le cadastre officiel et les notes / l'OM, à signaler à
-    GB (le cadastre est retenu sans attendre sa décision)."""
+    GB (pour la parcelle, le cadastre est retenu sans attendre sa décision)."""
     out = []
     lab = parcelle_label(data)
     notes = (data.get("parcelle_notes") or "").strip()
@@ -303,7 +310,11 @@ def ecarts_cadastre(data):
     except ExpertiseError:
         cad = nt = None
     if isinstance(cad, (int, float)) and isinstance(nt, (int, float)) and abs(cad - nt) > 0.5:
-        out.append(f"Superficie : les notes indiquent {nt:g} m², le cadastre {cad:g} m² (retenu en G42).")
+        out.append(f"Superficie : G42 = {cad:g} m², un autre document indique {nt:g} m² — retenez la valeur "
+                   "écrite qui revient le plus souvent (CADGIS, plan, notes).")
+    if "CADMAP" in (data.get("source_sup") or "").upper():
+        out.append("Superficie : jamais une surface calculée sur le contour CADMAP — reprenez une valeur écrite "
+                   "(CADGIS, plan ou notes).")
     if notes and not lab:
         out.append("Parcelle des notes encodée, mais pas la référence cadastrale officielle (WalOnMap / CADGIS).")
     return out
@@ -463,8 +474,8 @@ def create_abex(folder, data, model_path, initiales="GB"):
         remarques.append("Date de visite non remplie : C3 laissée vide (le modèle mettait la date du jour).")
     remarques += ecarts_cadastre(data)
     if values.get("G42") in (None, 0) and data.get("terrain_notes"):
-        remarques.append("Superficie cadastrale non encodée : G42 = 0 (la superficie des notes n'est pas reprise, "
-                         "le cadastre fait foi).")
+        remarques.append("Superficie du terrain non encodée en G42 (= 0) alors qu'un autre document en donne une : "
+                         "reprenez la valeur écrite qui revient le plus souvent (CADGIS, plan, notes).")
     target = next_version(os.path.join(folder, output_names(folder, initiales)["abex"]))
     if os.path.basename(target) != output_names(folder, initiales)["abex"]:
         remarques.append(f"Un ABEX existait déjà : nouvelle version « {os.path.basename(target)} » (l'existant n'est pas "

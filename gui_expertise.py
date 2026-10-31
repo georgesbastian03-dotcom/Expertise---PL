@@ -74,11 +74,12 @@ class ExpertiseTab(ttk.Frame):
             ttk.Entry(f, textvariable=v, width=30).grid(row=r, column=c * 2 + 1, sticky="we", padx=(0, 14), pady=2)
             self.vars[key] = v
 
-        f = section(R, "3 bis. Référence cadastrale — le cadastre officiel fait foi (CADGIS > CADMAP)")
+        f = section(R, "3 bis. Référence cadastrale — le cadastre officiel identifie la parcelle (CADGIS > CADMAP)")
         ttk.Label(f, foreground=GREY, wraplength=760, justify="left", text=(
             "Copiez l'encadré « Référence cadastrale » de WalOnMap (ou la fiche CADGIS) puis « Coller l'encadré » : "
-            "la CaPaKey, ses parties et la superficie sont remplies (la superficie va en G42). Les notes, l'OM et le "
-            "client ne servent qu'à comparer : un écart est signalé, le cadastre est retenu.")).grid(
+            "la CaPaKey et ses parties sont remplies ; pour la parcelle, le cadastre l'emporte sur les notes, l'OM et "
+            "le client. La superficie (G42) est toujours une valeur ÉCRITE (CADGIS, plan, notes), jamais une surface "
+            "calculée sur le contour CADMAP ; si les documents diffèrent, retenez celle qui revient le plus souvent.")).grid(
             row=0, column=0, columnspan=4, sticky="w", pady=(0, 4))
         champs = xe.CADASTRE + xe.NOTES_CAD
         for i, (key, label) in enumerate(champs):
@@ -215,10 +216,17 @@ class ExpertiseTab(ttk.Frame):
                                             "« Référence cadastrale » (ou encodez les champs à la main).")
             return
         for k, v in found.items():
+            if k == "terrain_m2" and self.vars[k].get().strip():
+                continue  # ne remplace jamais une superficie déjà encodée
             if k in self.vars:
                 self.vars[k].set(v)
         if not self.vars["source_cad"].get().strip():
             self.vars["source_cad"].set("WalOnMap")
+        if "terrain_m2" in found and not self.vars["source_sup"].get().strip():
+            self.vars["source_sup"].set("encadré collé — à vérifier")
+        if found.get("sup_calculee"):
+            messagebox.showinfo("Cadastre", "La superficie de l'encadré est une surface CALCULÉE : elle n'est pas "
+                                            "reprise. Encodez une valeur écrite (CADGIS, plan ou notes).")
         self._check_cadastre()
 
     def _open_capture(self):
