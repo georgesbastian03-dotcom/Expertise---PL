@@ -58,8 +58,9 @@ CLES_LABELS = {
 # Tarifs HTVA (décisions GB du 31/10/2026 : mazout 250 €, gaz 200 €,
 # nettoyage en régie 40 €/h — voir degats-locatifs/grille-prix-degats-2026.md)
 TARIFS_CLES = {"copies": 15, "cyl_std": 135, "cyl_secu": 340, "detecteurs": 30}
-TARIFS_ENTRETIEN = {"boiler": 150, "ramonage": 100, "chauffage": 250, "chauffage_gaz": 200, "adoucisseur": 120,
-                    "alarme": 180, "ventilation": 150, "fosse": 120}
+# Entretiens : montants des listes (grille section G), plus ceux des anciens Excel.
+TARIFS_ENTRETIEN = {"boiler": 150, "ramonage": 100, "chauffage": 250, "chauffage_gaz": 200, "adoucisseur": 145,
+                    "alarme": 195, "ventilation": 220, "fosse": 155}
 PU_NETTOYAGE = 40
 LIGNE_CHAUFFAGE = 54
 NETTOYAGE_ROWS = list(range(61, 67))       # 6 lignes
@@ -69,10 +70,20 @@ AUTRES_ROWS = list(range(74, 131))         # 57 lignes
 SIGNATURE_ANCHOR = "C135"                  # au-dessus de « po L'expert en charge » (C139)
 
 # Lignes qui alimentent la TVA 21 % (Autres, Nettoyage, Extérieurs, expert…)
-ROWS_TVA21_FIXES = (
+ROWS_TVA21_FIXES = list(dict.fromkeys(
     list(CLES_ROWS.values()) + list(ENTRETIEN_ROWS.values())
     + NETTOYAGE_ROWS + [MAIN_OEUVRE_ROW] + FOURNITURES_ROWS
-)
+))  # sans doublon (mazout et gaz partagent la ligne 54)
+
+_MOINS_VALUE = re.compile(r"moins[\s-]*values?", re.I)
+
+
+def taux_tva(poste):
+    """Taux de TVA d'un poste « autres ». Règle GB 31/10 : jamais de TVA sur
+    les moins-values (0 %, hors de toute formule TVA)."""
+    if _MOINS_VALUE.search(poste.get("texte") or ""):
+        return 0
+    return int(to_num(poste.get("tva"), 6))
 
 
 class SortieError(Exception):
@@ -264,7 +275,7 @@ def compute(data):
     for a in data["autres"]:
         if a.get("type") == "titre":
             continue
-        add(a.get("texte") or "", a.get("qte"), a.get("pu"), a.get("usure"), int(to_num(a.get("tva"), 6)))
+        add(a.get("texte") or "", a.get("qte"), a.get("pu"), a.get("usure"), taux_tva(a))
 
     total_htva = round(sum(t for _l, t, _r in lignes), 2)
     base6 = round(sum(t for _l, t, r in lignes if r == 6), 2)
@@ -365,7 +376,7 @@ def fill_excel(data, output_path, template_path=None):
             ws["H38"].value = to_num(cit["prix"])
         ws["I38"].value = "=C38*H38"
 
-    # Clés / entretiens : seule la quantité est reportée (tarifs du gabarit)
+    # Clés : quantité seule (tarifs du gabarit) ; entretiens : quantité + montant des listes
     for k, row in CLES_ROWS.items():
         q = data["cles"].get(k)
         if str(q or "").strip():
@@ -376,6 +387,7 @@ def fill_excel(data, output_path, template_path=None):
         q = data["entretiens"].get(k)
         if str(q or "").strip():
             ws[f"C{row}"].value = to_num(q)
+            ws[f"G{row}"].value = TARIFS_ENTRETIEN[k]
     # Une seule ligne « Entretien chauffage » dans le tableau : mazout (250 €)
     # ou gaz (200 €), libellé et prix adaptés.
     q_maz = to_num(data["entretiens"].get("chauffage"))
@@ -448,7 +460,7 @@ def fill_excel(data, output_path, template_path=None):
         ws[f"G{row}"].value = pu  # None = prix non encore fixé
         ws[f"H{row}"].value = to_num(a.get("usure")) / 100.0
         ws[f"I{row}"].value = f"=C{row}*G{row}*(1-H{row})"
-        taux = int(to_num(a.get("tva"), 6))
+        taux = taux_tva(a)
         (rows6 if taux == 6 else rows21 if taux == 21 else []).append(row)
 
     # Récapitulatif
