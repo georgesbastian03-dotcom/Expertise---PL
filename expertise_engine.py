@@ -57,7 +57,29 @@ CHAMPS = [
     ("annee_achat", "G5", "Année d'achat", "nombre"),
     ("rc", "G7", "RC de base", "nombre"),
     ("annee_construction", "G8", "Année de construction", "nombre"),
-    ("terrain_m2", "G42", "Superficie terrain (m²)", "nombre"),
+    ("terrain_m2", "G42", "Superficie du terrain (m²) — valeur écrite", "nombre"),
+]
+# Référence cadastrale (WalOnMap, encadré « Référence cadastrale », ou
+# CADGIS). Règle GB 31/10 : le cadastre officiel l'emporte sur les notes,
+# l'OM et le client pour IDENTIFIER la parcelle ; CADGIS l'emporte sur
+# CADMAP en cas de divergence. La superficie est toujours une valeur ÉCRITE
+# et officielle (CADGIS, plan, notes), jamais une surface calculée sur le
+# contour CADMAP ; si plusieurs documents diffèrent, on retient la valeur qui
+# revient le plus souvent (exemple 3490 : 8 a 23, et non 818 m² calculés).
+CADASTRE = [
+    ("capakey", "CaPaKey"),
+    ("division", "Division"),
+    ("section_cad", "Section"),
+    ("radical", "Radical"),
+    ("exposant", "Exposant"),
+    ("puissance", "Puissance"),
+    ("source_cad", "Source de la parcelle (CADGIS / WalOnMap / CADMAP)"),
+    ("source_sup", "Source de la superficie (CADGIS / plan / notes)"),
+]
+# Ce que disent les notes, l'OM ou le client : seulement pour comparer.
+NOTES_CAD = [
+    ("parcelle_notes", "Parcelle selon les notes / l'OM (ex. A 53)"),
+    ("terrain_notes", "Superficie selon un autre document (m²)"),
 ]
 # Surfaces (SEM) par niveau : lignes C11 à C32 du modèle
 SURFACES = [
@@ -200,6 +222,101 @@ def cell_values(data):
     for cell, v in A_ECRASER.items():
         if out.get(cell) is None:
             out[cell] = v
+    return out
+
+
+# --------------------------------------------------------------------------
+# Cadastre
+# --------------------------------------------------------------------------
+_CAPAKEY_RE = re.compile(r"(\d{5})\s*([A-Z])\s*(\d{4})\s*/\s*(\d{2})\s*([A-Z_]?)\s*(\d{3})")
+
+
+def parse_capakey(txt):
+    """« 25005A0051/00S000 » → {division, section_cad, radical, exposant,
+    puissance} ; None si le texte n'est pas une CaPaKey."""
+    m = _CAPAKEY_RE.search((txt or "").upper())
+    if not m:
+        return None
+    div, sec, rad, bis, exp, pui = m.groups()
+    out = {"capakey": f"{div}{sec}{rad}/{bis}{exp}{pui}", "division": div, "section_cad": sec,
+           "radical": rad, "exposant": exp.replace("_", ""), "puissance": pui}
+    if int(bis):
+        out["bis"] = bis
+    return out
+
+
+def parse_superficie(txt):
+    """« 1272 m² », « 1.272 m² », « 12 a 72 ca », « 0 ha 12 a 72 ca » → m²
+    (float) ; None si rien de reconnu."""
+    t = (txt or "").lower().replace("\u00a0", " ")
+    m = re.search(r"(?:(\d+)\s*ha)?\s*(?:(\d+)\s*a(?![a-z]))?\s*(\d+)\s*ca\b", t)
+    if m and (m.group(1) or m.group(2) or m.group(3)):
+        return int(m.group(1) or 0) * 10000 + int(m.group(2) or 0) * 100 + int(m.group(3) or 0)
+    m = re.search(r"(\d[\d .]*(?:,\d+)?)\s*m(?:²|2)", t)
+    if m:
+        return float(m.group(1).replace(" ", "").replace(".", "").replace(",", "."))
+    return None
+
+
+def parse_walonmap(txt):
+    """Texte copié de l'encadré « Référence cadastrale » de WalOnMap (ou de
+    CADGIS) → champs reconnus (CaPaKey et ses parties, superficie)."""
+    out = parse_capakey(txt) or {}
+    if not out:
+        for key, label in (("division", "division"), ("section_cad", "section"), ("radical", "radical"),
+                           ("exposant", "exposant"), ("puissance", "puissance")):
+            m = re.search(label + r"\s*[:=]?\s*([0-9A-Za-z_]+)", txt or "", re.I)
+            if m:
+                out[key] = m.group(1).upper()
+    m = re.search(r"(?:superficie|surface)[^\n:]*[:=]?\s*([^\n]+)", txt or "", re.I)
+    sup = parse_superficie(m.group(1) if m else txt)
+    if sup is not None and re.search(r"calcul", (m.group(0) if m else txt) or "", re.I):
+        out["sup_calculee"] = True  # surface calculée sur le contour : jamais reprise
+    elif sup is not None:
+        out["terrain_m2"] = ("%g" % sup).replace(".", ",")
+    return out
+
+
+def parcelle_label(data):
+    """Libellé court de la parcelle : « A 0051S » (section, radical, exposant)."""
+    sec = (data.get("section_cad") or "").strip().upper()
+    rad = (data.get("radical") or "").strip()
+    exp = (data.get("exposant") or "").strip().upper()
+    if rad.isdigit():
+        rad = rad.zfill(4)
+    return " ".join(x for x in (sec, rad + exp) if x)
+
+
+def _norm_parcelle(txt):
+    """« A 53 », « A0053 », « 53 » → ("A", 53, "") pour comparer."""
+    t = (txt or "").upper().replace(" ", "")
+    m = re.match(r"^([A-Z]?)0*(\d+)([A-Z]?)", t)
+    return (m.group(1), int(m.group(2)), m.group(3)) if m else None
+
+
+def ecarts_cadastre(data):
+    """Écarts entre le cadastre officiel et les notes / l'OM, à signaler à
+    GB (pour la parcelle, le cadastre est retenu sans attendre sa décision)."""
+    out = []
+    lab = parcelle_label(data)
+    notes = (data.get("parcelle_notes") or "").strip()
+    if notes and lab:
+        a, b = _norm_parcelle(notes), _norm_parcelle(lab)
+        if a and b and (a[1] != b[1] or (a[0] and a[0] != b[0]) or (a[2] and a[2] != b[2])):
+            out.append(f"Parcelle : les notes indiquent « {notes} », le cadastre « {lab} » (retenu).")
+    try:
+        cad = parse_number(data.get("terrain_m2") or "")
+        nt = parse_number(data.get("terrain_notes") or "")
+    except ExpertiseError:
+        cad = nt = None
+    if isinstance(cad, (int, float)) and isinstance(nt, (int, float)) and abs(cad - nt) > 0.5:
+        out.append(f"Superficie : G42 = {cad:g} m², un autre document indique {nt:g} m² — retenez la valeur "
+                   "écrite qui revient le plus souvent (CADGIS, plan, notes).")
+    if "CADMAP" in (data.get("source_sup") or "").upper():
+        out.append("Superficie : jamais une surface calculée sur le contour CADMAP — reprenez une valeur écrite "
+                   "(CADGIS, plan ou notes).")
+    if notes and not lab:
+        out.append("Parcelle des notes encodée, mais pas la référence cadastrale officielle (WalOnMap / CADGIS).")
     return out
 
 
@@ -355,6 +472,10 @@ def create_abex(folder, data, model_path, initiales="GB"):
         remarques.append("Année de construction non remplie : cellule G8 laissée vide (le modèle mettait 1990).")
     if values.get("C3") is None:
         remarques.append("Date de visite non remplie : C3 laissée vide (le modèle mettait la date du jour).")
+    remarques += ecarts_cadastre(data)
+    if values.get("G42") in (None, 0) and data.get("terrain_notes"):
+        remarques.append("Superficie du terrain non encodée en G42 (= 0) alors qu'un autre document en donne une : "
+                         "reprenez la valeur écrite qui revient le plus souvent (CADGIS, plan, notes).")
     target = next_version(os.path.join(folder, output_names(folder, initiales)["abex"]))
     if os.path.basename(target) != output_names(folder, initiales)["abex"]:
         remarques.append(f"Un ABEX existait déjà : nouvelle version « {os.path.basename(target)} » (l'existant n'est pas "

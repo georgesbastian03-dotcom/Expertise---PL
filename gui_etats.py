@@ -198,6 +198,8 @@ class PosteDialog(tk.Toplevel):
                 except Exception:  # noqa: BLE001
                     messagebox.showerror("Prix illisible", f"Le prix « {d['pu']} » n'est pas compris.", parent=self)
                     return
+            if se.taux_tva(d) == 0 and d.get("tva") != "0":
+                d["tva"] = "0"  # moins-value : jamais de TVA (règle GB 31/10)
         if not d["texte"]:
             messagebox.showerror("Texte manquant", "Le texte est vide.", parent=self)
             return

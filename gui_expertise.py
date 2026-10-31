@@ -74,6 +74,32 @@ class ExpertiseTab(ttk.Frame):
             ttk.Entry(f, textvariable=v, width=30).grid(row=r, column=c * 2 + 1, sticky="we", padx=(0, 14), pady=2)
             self.vars[key] = v
 
+        f = section(R, "3 bis. Référence cadastrale — le cadastre officiel identifie la parcelle (CADGIS > CADMAP)")
+        ttk.Label(f, foreground=GREY, wraplength=760, justify="left", text=(
+            "Copiez l'encadré « Référence cadastrale » de WalOnMap (ou la fiche CADGIS) puis « Coller l'encadré » : "
+            "la CaPaKey et ses parties sont remplies ; pour la parcelle, le cadastre l'emporte sur les notes, l'OM et "
+            "le client. La superficie (G42) est toujours une valeur ÉCRITE (CADGIS, plan, notes), jamais une surface "
+            "calculée sur le contour CADMAP ; si les documents diffèrent, retenez celle qui revient le plus souvent.")).grid(
+            row=0, column=0, columnspan=4, sticky="w", pady=(0, 4))
+        champs = xe.CADASTRE + xe.NOTES_CAD
+        for i, (key, label) in enumerate(champs):
+            r, c = divmod(i, 2)
+            ttk.Label(f, text=label).grid(row=r + 1, column=c * 2, sticky="w", padx=(0, 6), pady=2)
+            v = tk.StringVar()
+            e = ttk.Entry(f, textvariable=v, width=30)
+            e.grid(row=r + 1, column=c * 2 + 1, sticky="we", padx=(0, 14), pady=2)
+            self.vars[key] = v
+            if key == "capakey":
+                e.bind("<FocusOut>", lambda _e: self._split_capakey())
+        r = (len(champs) + 1) // 2 + 1
+        b = ttk.Frame(f)
+        b.grid(row=r, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        ttk.Button(b, text="Coller l'encadré WalOnMap / CADGIS", command=self._paste_cadastre).pack(side="left")
+        ttk.Button(b, text="Ouvrir une capture de l'encadré…", command=self._open_capture).pack(side="left", padx=6)
+        self.cad_var = tk.StringVar()
+        ttk.Label(f, textvariable=self.cad_var, foreground="#b45309", wraplength=760, justify="left").grid(
+            row=r + 1, column=0, columnspan=4, sticky="w", pady=(4, 0))
+
         f = section(R, "4. Surfaces brutes (SEM) par niveau, en m² — formule possible : =9*6,98+1,23*2,5")
         for i, (cell, label) in enumerate(xe.SURFACES):
             r, c = divmod(i, 3)
@@ -83,7 +109,11 @@ class ExpertiseTab(ttk.Frame):
             self.surf_vars[cell] = v
         ttk.Label(f, foreground=GREY, wraplength=760, justify="left", text=(
             "Maison : SEM calculée depuis les cotes extérieures du croquis, sans coefficient. Appartement : "
-            "SIM × 1,15 avec la formule visible (ex. =96,22*1,15).")).grid(row=7, column=0, columnspan=6, sticky="w")
+            "SEM dans l'ABEX = SIM × 1,15 avec la formule visible (ex. =96,22*1,15) OU directement la surface PEB, "
+            "déjà une SEM (jamais de +15 % sur le PEB) ; le Word affiche la SIM. Combles / étage mansardé : jamais calculés, "
+            "reprenez uniquement les m² réels relevés par GB sous 2,10 m (sinon laissez vide et surlignez en jaune "
+            "dans le Word). Dans le Word : surfaces arrondies au m² le plus proche (jamais tronquées), annexes pas "
+            "reportées d'office.")).grid(row=7, column=0, columnspan=6, sticky="w")
 
         g = ttk.Frame(R)
         g.pack(fill="x", pady=(0, 10))
@@ -136,6 +166,7 @@ class ExpertiseTab(ttk.Frame):
             v.set(data.get(key, "") or "")
         for cell, v in self.surf_vars.items():
             v.set((data.get("surfaces") or {}).get(cell, ""))
+        self._check_cadastre()
         words = xe.find_words(folder)
         self.word_paths = words
         self.word_combo.configure(values=[os.path.basename(p) for p in words])
@@ -168,6 +199,50 @@ class ExpertiseTab(ttk.Frame):
             self.word_paths = list(getattr(self, "word_paths", [])) + [p]
             self.word_combo.configure(values=[os.path.basename(x) for x in self.word_paths])
             self.word_combo.current(len(self.word_paths) - 1)
+
+    # -- cadastre --------------------------------------------------------------
+    def _split_capakey(self):
+        parts = xe.parse_capakey(self.vars["capakey"].get())
+        if parts:
+            for k, v in parts.items():
+                if k in self.vars:
+                    self.vars[k].set(v)
+        self._check_cadastre()
+
+    def _paste_cadastre(self):
+        try:
+            txt = self.clipboard_get()
+        except tk.TclError:
+            txt = ""
+        found = xe.parse_walonmap(txt)
+        if not found:
+            messagebox.showinfo("Cadastre", "Rien de reconnu dans le presse-papiers. Copiez le texte de l'encadré "
+                                            "« Référence cadastrale » (ou encodez les champs à la main).")
+            return
+        for k, v in found.items():
+            if k == "terrain_m2" and self.vars[k].get().strip():
+                continue  # ne remplace jamais une superficie déjà encodée
+            if k in self.vars:
+                self.vars[k].set(v)
+        if not self.vars["source_cad"].get().strip():
+            self.vars["source_cad"].set("WalOnMap")
+        if "terrain_m2" in found and not self.vars["source_sup"].get().strip():
+            self.vars["source_sup"].set("encadré collé — à vérifier")
+        if found.get("sup_calculee"):
+            messagebox.showinfo("Cadastre", "La superficie de l'encadré est une surface CALCULÉE : elle n'est pas "
+                                            "reprise. Encodez une valeur écrite (CADGIS, plan ou notes).")
+        self._check_cadastre()
+
+    def _open_capture(self):
+        p = filedialog.askopenfilename(title="Capture de l'encadré WalOnMap", initialdir=self.folder or None,
+                                       filetypes=[("Images", "*.png *.jpg *.jpeg *.bmp"), ("Tous", "*.*")])
+        if p:
+            open_path(p)
+            self.cad_var.set("Recopiez la CaPaKey et la superficie de la capture dans les champs ci-dessus.")
+
+    def _check_cadastre(self):
+        ecarts = xe.ecarts_cadastre({k: v.get() for k, v in self.vars.items()})
+        self.cad_var.set(("À signaler : " + " ".join(ecarts)) if ecarts else "")
 
     # -- données ---------------------------------------------------------------
     def _data(self):
