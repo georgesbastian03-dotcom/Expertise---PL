@@ -36,13 +36,14 @@ SHEET_NAME = "Feuil1"
 # --- Plan du tableau Excel type (gabarit vierge, 139 lignes) ---------------
 CLES_ROWS = {"copies": 42, "cyl_std": 43, "cyl_secu": 44, "detecteurs": 45}
 ENTRETIEN_ROWS = {
-    "boiler": 52, "ramonage": 53, "chauffage": 54, "adoucisseur": 55,
+    "boiler": 52, "ramonage": 53, "chauffage": 54, "chauffage_gaz": 54, "adoucisseur": 55,
     "alarme": 56, "ventilation": 57, "fosse": 58,
 }
 ENTRETIEN_LABELS = {
     "boiler": "Entretien boiler",
     "ramonage": "Ramonage cheminée",
-    "chauffage": "Entretien chauffage",
+    "chauffage": "Entretien chaudière mazout",
+    "chauffage_gaz": "Entretien chaudière gaz",
     "adoucisseur": "Entretien adoucisseur",
     "alarme": "Entretien alarme",
     "ventilation": "Entretien ventilation / filtre / double flux",
@@ -54,6 +55,13 @@ CLES_LABELS = {
     "cyl_secu": "Remplacement cylindre sécurité",
     "detecteurs": "Détecteur manquant / pile HS",
 }
+# Tarifs HTVA (décisions GB du 31/10/2026 : mazout 250 €, gaz 200 €,
+# nettoyage en régie 40 €/h — voir degats-locatifs/grille-prix-degats-2026.md)
+TARIFS_CLES = {"copies": 15, "cyl_std": 135, "cyl_secu": 340, "detecteurs": 30}
+TARIFS_ENTRETIEN = {"boiler": 150, "ramonage": 100, "chauffage": 250, "chauffage_gaz": 200, "adoucisseur": 120,
+                    "alarme": 180, "ventilation": 150, "fosse": 120}
+PU_NETTOYAGE = 40
+LIGNE_CHAUFFAGE = 54
 NETTOYAGE_ROWS = list(range(61, 67))       # 6 lignes
 MAIN_OEUVRE_ROW = 68
 FOURNITURES_ROWS = list(range(69, 73))     # 4 lignes
@@ -244,15 +252,12 @@ def compute(data):
         tot = round(q * (p or 0.0) * (1 - u), 2)
         lignes.append((label, tot, tva))
 
-    tarifs_cles = {"copies": 15, "cyl_std": 135, "cyl_secu": 340, "detecteurs": 30}
     for k, row in CLES_ROWS.items():
-        add(CLES_LABELS[k], data["cles"].get(k), tarifs_cles[k])
-    tarifs_ent = {"boiler": 150, "ramonage": 100, "chauffage": 240, "adoucisseur": 120,
-                  "alarme": 180, "ventilation": 150, "fosse": 120}
+        add(CLES_LABELS[k], data["cles"].get(k), TARIFS_CLES[k])
     for k in ENTRETIEN_ROWS:
-        add(ENTRETIEN_LABELS[k], data["entretiens"].get(k), tarifs_ent[k])
+        add(ENTRETIEN_LABELS[k], data["entretiens"].get(k), TARIFS_ENTRETIEN[k])
     for n in data["nettoyage"]:
-        add("Nettoyage : " + (n.get("texte") or ""), n.get("qte"), n.get("pu") or 35)
+        add("Nettoyage : " + (n.get("texte") or ""), n.get("qte"), n.get("pu") or PU_NETTOYAGE)
     add("Main d'œuvre", data["main_oeuvre"].get("qte"), data["main_oeuvre"].get("pu") or 50)
     for f in data["fournitures"]:
         add("Fourniture : " + (f.get("texte") or ""), f.get("qte"), f.get("pu"), f.get("usure"))
@@ -366,9 +371,23 @@ def fill_excel(data, output_path, template_path=None):
         if str(q or "").strip():
             ws[f"C{row}"].value = to_num(q)
     for k, row in ENTRETIEN_ROWS.items():
+        if row == LIGNE_CHAUFFAGE:
+            continue
         q = data["entretiens"].get(k)
         if str(q or "").strip():
             ws[f"C{row}"].value = to_num(q)
+    # Une seule ligne « Entretien chauffage » dans le tableau : mazout (250 €)
+    # ou gaz (200 €), libellé et prix adaptés.
+    q_maz = to_num(data["entretiens"].get("chauffage"))
+    q_gaz = to_num(data["entretiens"].get("chauffage_gaz"))
+    if q_maz and q_gaz:
+        raise SortieError("Entretien chaudière : mazout OU gaz (une seule ligne dans le tableau).")
+    if q_maz or q_gaz:
+        k = "chauffage_gaz" if q_gaz else "chauffage"
+        r = LIGNE_CHAUFFAGE
+        _set_text(ws, f"B{r}", ENTRETIEN_LABELS[k])
+        ws[f"C{r}"].value = q_gaz or q_maz
+        ws[f"G{r}"].value = TARIFS_ENTRETIEN[k]
 
     # Nettoyage
     if len(data["nettoyage"]) > len(NETTOYAGE_ROWS):
@@ -379,7 +398,7 @@ def fill_excel(data, output_path, template_path=None):
         ws[f"C{row}"].value = to_num(n.get("qte"))
         _set_text(ws, f"D{row}", n.get("unite") or "forfait")
         pu = excel_prix(n.get("pu"))
-        ws[f"G{row}"].value = pu if pu is not None else 35
+        ws[f"G{row}"].value = pu if pu is not None else PU_NETTOYAGE
         ws[f"I{row}"].value = f"=G{row}*C{row}"
 
     mo = data["main_oeuvre"]
