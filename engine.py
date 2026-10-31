@@ -32,6 +32,9 @@ FIELD_ALIASES = {
     "numero": ["n"],
     "bte": ["bte"],
     "datePassage": ["date passage"],
+    # Colonne facultative (GB 31/10/2026) : seconde visite, p. ex. campagne
+    # IGE visitée en mars puis revue en septembre.
+    "datePassage2": ["date passage 2", "date de passage 2", "date passage2"],
     "dateCloture": ["date de cloture"],
     "etage": ["etage"],
     "avAr": ["av/ ar", "av/ar"],
@@ -445,6 +448,23 @@ def detect_collectif(unit, m) -> str:
     return " / ".join(vals)
 
 
+def dates_passage(rows, m) -> str:
+    """« 19/03/2026 » ou, si la colonne facultative « Date passage 2 » est
+    remplie, « 19/03/2026 et 15/09/2026 ». `rows` : la ligne du logement
+    (individuel) ou la ligne Communautaire suivie des chambres (collectif) ;
+    chaque date est prise sur la première ligne où elle est remplie."""
+    def first(field):
+        for r in rows:
+            v = format_val(cell(r, m, field))
+            if v:
+                return v
+        return ""
+    d1, d2 = first("datePassage"), first("datePassage2")
+    if d2 and d2 != d1:
+        return f"{d1} et {d2}" if d1 else d2
+    return d1
+
+
 def build_data_spec_collectif(unit, m, extra_scalars=None):
     row = unit["commun_row"]
     chambres = unit["chambres"]
@@ -452,7 +472,7 @@ def build_data_spec_collectif(unit, m, extra_scalars=None):
 
     nb_sanit = to_num(cell(row, m, "nbSdb")) + to_num(cell(row, m, "nbWc"))
     localite = str(cell(row, m, "localite") or "").strip()
-    date_passage_val = format_val(cell(row, m, "datePassage"))
+    date_passage_val = dates_passage([row] + chambres, m)
     date_cloture_val = format_val(cell(row, m, "dateCloture"))
     unit_bte_val = str(cell(row, m, "bte")).strip() if cell(row, m, "bte") is not None else ""
 
@@ -557,7 +577,7 @@ def build_data_spec_collectif(unit, m, extra_scalars=None):
 def build_data_spec_individuel(unit, m, extra_scalars=None):
     row = unit["row"]
     localite = str(cell(row, m, "localite") or "").strip()
-    date_passage_val = format_val(cell(row, m, "datePassage"))
+    date_passage_val = dates_passage([row], m)
     date_cloture_val = format_val(cell(row, m, "dateCloture"))
     surf_studio_val = format_val(cell(row, m, "surfStudio"))
     scalars = {
