@@ -629,4 +629,22 @@ def build_data_spec_individuel(unit, m, extra_scalars=None):
     return scalars, {}
 
 
+def build_data_spec_attestation(unit, m, extra_scalars=None):
+    """Balises de l'attestation de conformité 2A (gabarits de Léon, 01/11/2026) :
+    mêmes noms que le 1B, plus [[Nbre_menages]] (1 pour un studio, nombre de
+    chambres pour une commu) et [[Nbre_occupants]] (colonne « Nbre occupants »
+    pour un studio, somme des chambres pour une commu). Tout est scalaire."""
+    if unit["format"] == "collectif":
+        scalars, _pos = build_data_spec_collectif(unit, m, extra_scalars)
+        row = unit["commun_row"]
+        chambres = unit["chambres"]
+        scalars["Bte"] = str(cell(row, m, "bte")).strip() if cell(row, m, "bte") is not None else ""
+        scalars["Nbre_menages"] = str(len(chambres))
+        scalars["Nbre_occupants"] = format_val(sum(to_num(cell(c, m, "nbOccupants")) for c in chambres))
+    else:
+        scalars, _pos = build_data_spec_individuel(unit, m, extra_scalars)
+        scalars["Nbre_menages"] = "1"
+    return scalars, {}
+
+
 MAX_CHAMBRES_TEMPLATE = 19
