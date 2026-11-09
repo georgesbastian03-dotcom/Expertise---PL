@@ -42,8 +42,8 @@ class ExpertiseTab(ttk.Frame):
         ttk.Label(R, wraplength=800, justify="left", foreground=GREY, text=(
             "Encodage mécanique d'une expertise : l'ABEX est créé à partir du modèle VIERGE officiel (seul l'onglet "
             "Données est rempli, les formules restent intactes) et les photos sont placées dans le rapport Word "
-            "(façade en page de garde, planches 3 × 3 sous « PHOTO(S) DE L'IMMEUBLE »). Aucun fichier existant "
-            "n'est écrasé : une nouvelle version « v2 » est écrite à côté. Ne reprenez que ce qui est entouré, coché "
+            "(façade en page de garde, planches 3 × 3 sous « PHOTO(S) DE L'IMMEUBLE »). Un seul Word par dossier : "
+            "il est modifié sur place, après une copie de sécurité hors Dropbox (jamais de v2, aucun PDF). Ne reprenez que ce qui est entouré, coché "
             "ou écrit dans les notes ; laissez vide ce qui n'y figure pas.")).pack(anchor="w", pady=(0, 10))
 
         f = section(R, "1. Dossier")
@@ -132,7 +132,7 @@ class ExpertiseTab(ttk.Frame):
         ttk.Label(f, textvariable=self.photo_var, wraplength=600, justify="left").grid(
             row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
         ttk.Button(f, text="Choisir les photos…", command=self._pick_photos).grid(row=1, column=2, pady=(6, 0))
-        self.photos_btn = ttk.Button(f, text="Placer les photos dans le Word (nouvelle version)",
+        self.photos_btn = ttk.Button(f, text="Placer les photos dans le Word",
                                      command=self._insert_photos)
         self.photos_btn.grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
@@ -322,9 +322,10 @@ class ExpertiseTab(ttk.Frame):
         if not facades and not planches:
             messagebox.showwarning("Photos", "Aucune photo retenue.")
             return
-        if not messagebox.askyesno("Confirmer", f"Une nouvelle version de « {os.path.basename(word)} » va être écrite "
-                                   f"à côté (façade : {'oui' if facades else 'non'}, {len(planches)} photo(s) en "
-                                   "planches). L'original n'est pas modifié.\n\nContinuer ?"):
+        if not messagebox.askyesno("Confirmer", f"« {os.path.basename(word)} » va être modifié sur place (façade : "
+                                   f"{'oui' if facades else 'non'}, {len(planches)} photo(s) en planches ; les "
+                                   "anciennes planches sont remplacées). Une copie de sécurité est faite hors "
+                                   "Dropbox.\n\nFermez le Word s'il est ouvert. Continuer ?"):
             return
         self.photos_btn.configure(state="disabled")
 

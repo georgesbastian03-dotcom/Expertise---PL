@@ -12,8 +12,9 @@ Ce module fait la partie mécanique de l'encodage :
     onglets restent intacts ; Excel recalcule tout à l'ouverture ;
   * photos : façade en page de garde (cadre existant du Word, rotation du
     modèle gérée) et planches 3 × 3 sous « PHOTO(S) DE L'IMMEUBLE » ;
-  * jamais d'écrasement d'un fichier sur lequel l'expert a travaillé : une
-    nouvelle version (« … v2 ») est écrite à côté.
+  * ABEX : jamais d'écrasement, une nouvelle version (« … v2 ») est écrite
+    à côté ; Word : un seul par dossier, modifié sur place après copie de
+    sécurité hors Dropbox (règle GB 09/11/2026), aucun PDF.
 """
 import io
 import json
@@ -563,10 +564,11 @@ def _replace_cover(document, drawing, item):
 
 
 def insert_photos(word_path, cover, planche_items, progress_cb=None):
-    """Écrit une nouvelle version du Word (« … v2.docx ») avec la photo de
-    façade en garde et les planches 3 × 3 sous « PHOTO(S) DE
-    L'IMMEUBLE ». Le Word d'origine n'est pas modifié. Retourne {"path",
-    "planches", "remarques"}."""
+    """Place la photo de façade en garde et les planches 3 × 3 sous
+    « PHOTO(S) DE L'IMMEUBLE » DANS le Word existant (règle GB 09/11/2026 :
+    un seul Word par dossier, jamais de v2/v3, aucun PDF). Une copie de
+    sécurité est faite hors Dropbox avant l'écriture. Retourne {"path",
+    "planches", "remarques", "sauvegarde"}."""
     import docx
 
     def say(msg):
@@ -575,6 +577,7 @@ def insert_photos(word_path, cover, planche_items, progress_cb=None):
 
     folder = os.path.dirname(word_path)
     securite.check_dossier_folder(folder)
+    securite.ensure_not_locked(word_path)
     d = docx.Document(word_path)
     body = d.element.body
     remarques = []
@@ -629,7 +632,9 @@ def insert_photos(word_path, cover, planche_items, progress_cb=None):
                 ee._set_ppr_flag(el, "pageBreakBefore", True)
                 break
     e27._drop_unused_rels(d, removed)
-    target = next_version(word_path)
+    target = word_path
+    say("Copie de sécurité…")
+    sauvegarde = securite.backup_file(word_path)
     say("Enregistrement…")
     temp = securite.temp_path_for(target)
     try:
@@ -640,8 +645,8 @@ def insert_photos(word_path, cover, planche_items, progress_cb=None):
             os.remove(temp)  # fichier temporaire du programme uniquement
         raise ExpertiseError(f"Enregistrement impossible : {exc}") from exc
     securite.commit_temp(temp, target)
-    remarques.append(f"Nouvelle version écrite à côté : « {os.path.basename(target)} » (l'original n'est pas modifié).")
-    return {"path": target, "planches": planches, "remarques": remarques}
+    remarques.append(f"Word mis à jour sur place ; copie de sécurité : {sauvegarde}")
+    return {"path": target, "planches": planches, "remarques": remarques, "sauvegarde": sauvegarde}
 
 
 def photo_items(folder):
