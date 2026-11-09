@@ -660,6 +660,13 @@ class PermisLocationTab(ttk.Frame):
             variable=self.export_pdf_var,
             command=self._on_pdf_toggle,
         ).pack(anchor="w", pady=(0, 8))
+        self.attest_var = tk.BooleanVar(value=self.cfg.get("attestations_2a", True))
+        ttk.Checkbutton(
+            frame,
+            text="Générer aussi l'attestation de conformité 2A de chaque logement (gabarits « Attestation 2A - … »)",
+            variable=self.attest_var,
+            command=lambda: (self.cfg.__setitem__("attestations_2a", self.attest_var.get()), config.save_config(self.cfg)),
+        ).pack(anchor="w", pady=(0, 8))
 
         btn_row = ttk.Frame(frame)
         btn_row.pack(anchor="w")
@@ -735,6 +742,9 @@ class PermisLocationTab(ttk.Frame):
         self.stop_event = threading.Event()
         self.stop_btn.config(state="normal")
         export_pdf = self.export_pdf_var.get()
+        attestations = self.attest_var.get()
+        dossier_attest = generator.dossier_number(dossier, self.excel_path)
+        initiales = self.cfg.get("mes_initiales") or "GB"
         _, units, m, _, _, extra_scalars = self.mission
         total_units = len(units)
         adresses = sorted({engine.unit_label(u, m)["adresse"] for u in units})
@@ -754,7 +764,8 @@ class PermisLocationTab(ttk.Frame):
             try:
                 results = generator.generate_reports(
                     annexe, units, m, gabarits_folder, output_folder, export_pdf, progress, extra_scalars,
-                    plan_paths, should_stop=stop_event.is_set,
+                    plan_paths, should_stop=stop_event.is_set, attestations=attestations,
+                    dossier=dossier_attest, initiales=initiales,
                 )
             except Exception as exc:  # noqa: BLE001
                 self.after(0, lambda: self._on_generation_failed(exc))
@@ -804,6 +815,18 @@ class PermisLocationTab(ttk.Frame):
             msg_lines = [f"{len(ok)} rapport(s) généré(s) sur {total_attendu}."]
         if unknown_tags:
             msg_lines.append("Balises non reconnues dans le gabarit (laissées vides) : " + ", ".join(sorted(unknown_tags)))
+        attests = [r for r in results if "attest_docx" in r]
+        if attests:
+            n_ok = sum(1 for r in attests if r.get("attest_docx"))
+            msg_lines.append(f"{n_ok} attestation(s) 2A générée(s).")
+            unk = sorted({t for r in attests for t in (r.get("attest_unknown") or [])})
+            if unk:
+                msg_lines.append("Balises non reconnues dans l'attestation (laissées vides) : " + ", ".join(unk))
+            a_err = [r for r in attests if r.get("attest_error")]
+            for r in a_err[:5]:
+                msg_lines.append(f"- Attestation {r['file_base']} : {r['attest_error']}")
+            if len(a_err) > 5:
+                msg_lines.append(f"... et {len(a_err) - 5} autre(s) erreur(s) d'attestation.")
         if errors:
             msg_lines.append("\nErreurs :")
             for e in errors[:10]:

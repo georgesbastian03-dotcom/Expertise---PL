@@ -2,6 +2,7 @@
 unités, génération des .docx (et export PDF optionnel si Word est présent).
 """
 import os
+import re
 from pathlib import Path
 
 import engine
@@ -27,6 +28,47 @@ TEMPLATE_FILENAMES = {
         "individuel": "Annexe 1D - GABARIT LOGEMENT INDIVIDUEL.docx",
     },
 }
+
+
+# Attestations de conformité 2A (une par unité, à côté de chaque rapport)
+ATTESTATION_FILENAMES = {
+    "collectif": "Attestation 2A - GABARIT LOGEMENT COLLECTIF.docx",
+    "individuel": "Attestation 2A - GABARIT LOGEMENT INDIVIDUEL.docx",
+}
+
+
+def dossier_number(dossier="", *paths):
+    """N° « 2026.NNNN » : celui saisi, sinon trouvé dans le chemin de l'Excel."""
+    for txt in (dossier, *paths):
+        mm = re.search(r"(20\d\d)[.\-_ ](\d{4})", txt or "")
+        if mm:
+            return f"{mm.group(1)}.{mm.group(2)}"
+    return (dossier or "").strip()
+
+
+def attestation_name(unit, m, dossier, initiales="GB"):
+    """« 2026.NNNN Attestation PL <Commune> <Rue> <n°>.<bte> GB » (sans .docx)."""
+    row = unit["commun_row"] if unit["format"] == "collectif" else unit["row"]
+    commune = str(engine.cell(row, m, "localite") or "").strip()
+    rue = str(engine.cell(row, m, "adresse") or "").strip()
+    n = engine.format_val(engine.cell(row, m, "numero"))
+    bte_v = engine.cell(row, m, "bte")
+    bte = str(bte_v).strip() if bte_v is not None else ""
+    num = f"{n}.{bte}" if bte else n
+    parts = [dossier, "Attestation PL", commune, rue, num, initiales]
+    name = " ".join(p for p in parts if p)
+    return re.sub(r'[\\/:*?"<>|]+', "-", re.sub(r"\s+", " ", name)).strip()
+
+
+def _free_path(path):
+    """Ne remplace jamais une attestation existante : « … v2.docx », « … v3 »…"""
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    k = 2
+    while os.path.exists(f"{base} v{k}{ext}"):
+        k += 1
+    return f"{base} v{k}{ext}"
 
 
 class MissionError(Exception):
@@ -100,6 +142,9 @@ def generate_reports(
     extra_scalars=None,
     plan_paths=None,
     should_stop=None,
+    attestations=False,
+    dossier="",
+    initiales="GB",
 ):
     """Génère un .docx (et .pdf si demandé) par unité. Retourne une liste de
     dicts {file_base, docx_path, pdf_path, unknown_tags, error}.
@@ -201,9 +246,36 @@ def generate_reports(
             except Exception as exc:  # noqa: BLE001
                 entry["error"] = f"PDF non généré : {exc}"
 
+        if attestations:
+            _make_attestation(entry, unit, m, gabarits_folder, output_folder, export_pdf, scalars_with_plans,
+                              dossier, initiales)
+
         results.append(entry)
 
     return results
+
+
+def _make_attestation(entry, unit, m, gabarits_folder, output_folder, export_pdf, extra_scalars, dossier, initiales):
+    """Attestation 2A de l'unité ; une erreur ici n'annule jamais le rapport
+    (elle est notée dans entry["attest_error"])."""
+    entry.update({"attest_docx": None, "attest_pdf": None, "attest_error": None, "attest_unknown": []})
+    tpl = os.path.join(gabarits_folder, ATTESTATION_FILENAMES[unit["format"]])
+    if not os.path.isfile(tpl):
+        entry["attest_error"] = f"Gabarit introuvable : {ATTESTATION_FILENAMES[unit['format']]}"
+        return
+    try:
+        scalars, positional = engine.build_data_spec_attestation(unit, m, extra_scalars)
+        path = _free_path(os.path.join(output_folder, attestation_name(unit, m, dossier, initiales) + ".docx"))
+        entry["attest_unknown"] = docx_fill.fill_docx(tpl, path, scalars, positional)
+        entry["attest_docx"] = path
+    except Exception as exc:  # noqa: BLE001
+        entry["attest_error"] = str(exc)
+        return
+    if export_pdf:
+        try:
+            entry["attest_pdf"] = _export_pdf(path)
+        except Exception as exc:  # noqa: BLE001
+            entry["attest_error"] = f"PDF de l'attestation non généré : {exc}"
 
 
 def _export_pdf(docx_path: str) -> str:
