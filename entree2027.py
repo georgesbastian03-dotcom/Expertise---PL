@@ -368,6 +368,61 @@ def fix_bailleur_refs(body):
     return n
 
 
+def fix_date_refs(body):
+    """Champs REF EDL_date (page de garde) : après une mise à jour complète
+    des champs, Word colle l'année à la date (« 29 octobre2026 »). Les dates
+    du constat sont toutes écrites par le programme : ces REF deviennent du
+    texte fixe (le contrôle « Date du constat » est gardé). Retourne le
+    nombre de champs fixés."""
+    n = 0
+    for p in list(body.iter(W + "p")):
+        for f in _fields_in_paragraph(p):
+            if re.match(r"\s*REF\s+EDL_date\b", f["instr"]):
+                _unwrap_field(p, f)
+                n += 1
+    return n
+
+
+def restore_numpages(body):
+    """La dactylo remplace parfois le champ NUMPAGES (« NOMBRE DE PAGES »
+    de la garde) par un nombre tapé : le champ est remis. Retourne True si
+    une correction a été faite."""
+    paras = list(body.iter(W + "p"))
+    for i, p in enumerate(paras[:-1]):
+        if _text(p).strip().upper() != "NOMBRE DE PAGES":
+            continue
+        q = paras[i + 1]
+        if any("NUMPAGES" in (t.text or "") for t in q.iter(W + "instrText")) or \
+                any(fs.get(W + "instr", "").strip().startswith("NUMPAGES") for fs in q.iter(W + "fldSimple")):
+            return False
+        if not re.fullmatch(r"\s*\d*\s*", _text(q)):
+            return False
+        typed = _text(q).strip()
+        runs = q.findall(W + "r")
+        rpr = runs[0].find(W + "rPr") if runs else None
+        for r in runs:
+            q.remove(r)
+
+        def run_with(child):
+            r = _make("w:r")
+            if rpr is not None:
+                r.append(deepcopy(rpr))
+            r.append(child)
+            q.append(r)
+        run_with(_make("w:fldChar", fldCharType="begin"))
+        it = _make("w:instrText")
+        it.text = " NUMPAGES "
+        it.set(XML_SPACE, "preserve")
+        run_with(it)
+        run_with(_make("w:fldChar", fldCharType="separate"))
+        t = _make("w:t")
+        t.text = typed or "1"
+        run_with(t)
+        run_with(_make("w:fldChar", fldCharType="end"))
+        return True
+    return False
+
+
 def sync_ref_results(body, changes):
     """Met à jour le résultat affiché des champs REF dont le texte était une
     ancienne valeur modifiée (`changes` : {ancien: nouveau})."""
@@ -956,6 +1011,9 @@ def finalize(docx_path, items, date_cloture=None, parties_updates=None, initiale
         for s in _sdts(body, "rue") + _sdts(body, "localite"):
             _highlight(s)
     sync_ref_results(body, changes)
+    fix_date_refs(body)
+    if restore_numpages(body):
+        remarques.append("Nombre de pages de la garde : le nombre tapé a été remplacé par le champ automatique.")
 
     # 3. Parties : corrections de Georges, puis police des noms
     _apply_parties(body, parties_updates, remarques)
