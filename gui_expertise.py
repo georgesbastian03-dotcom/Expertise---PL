@@ -66,7 +66,7 @@ class ExpertiseTab(ttk.Frame):
                                             "Jamais l'ABEX d'un autre dossier.")).grid(
             row=1, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
-        f = section(R, "3. Données (onglet Données de l'ABEX)")
+        f = section(R, "3. Données (onglet Données de l'ABEX) — rien ou « ? » dans les notes : laissez vide ou tapez ?, la cellule sera vide et jaune")
         for i, (key, cell, label, _kind) in enumerate(xe.CHAMPS):
             r, c = divmod(i, 2)
             ttk.Label(f, text=f"{label} [{cell}]").grid(row=r, column=c * 2, sticky="w", padx=(0, 6), pady=2)
