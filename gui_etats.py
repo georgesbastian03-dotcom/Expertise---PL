@@ -1424,7 +1424,7 @@ class EntreeTab(ttk.Frame):
         quoi = (f"• le formulaire « {os.path.basename(form)} » sera renommé en « {newname} » (contenu inchangé) ;\n"
                 if form and newname else "• aucun formulaire PDF à renommer ;\n")
         if not messagebox.askyesno("Confirmer", "Entrée AISBW :\n" + quoi +
-                                   f"• le reportage photos ({n} photo(s), en-tête « {adresse} ») sera créé en .docx et .pdf."
+                                   f"• « Reportage photos.docx » ({n} photo(s), en-tête « {adresse} ») sera rempli (pas de PDF)."
                                    "\n\nContinuer ?"):
             return
         ini = (self.cfg.get("mes_initiales") or "GB").upper()

@@ -423,6 +423,45 @@ def restore_numpages(body):
     return False
 
 
+def sync_styleref_headers(document):
+    """En-têtes « … Dossier n° STYLEREF "EDL Dossier" » : le résultat
+    mémorisé du modèle (« 2026.0000 / BEX ») reste parfois affiché tel quel.
+    Il est remplacé par le texte actuel du premier paragraphe du corps qui
+    porte ce style (« 2026.3484 / GB »). Retourne le nombre de champs mis
+    à jour."""
+    body = document.element.body
+    names = {st.style_id: st.name for st in document.styles}
+    first_text = {}
+    for p in body.iter(W + "p"):
+        ps = p.find(W + "pPr/" + W + "pStyle")
+        if ps is None:
+            continue
+        nm = names.get(ps.get(W + "val"), ps.get(W + "val"))
+        if nm not in first_text and _text(p).strip():
+            first_text[nm] = _text(p).strip()
+    n = 0
+    seen = set()
+    for section in document.sections:
+        for hdr in (section.header, section.first_page_header, section.even_page_header):
+            el = hdr._element
+            if id(el) in seen:
+                continue
+            seen.add(id(el))
+            for p in el.iter(W + "p"):
+                for f in _fields_in_paragraph(p):
+                    m = re.match(r'\s*STYLEREF\s+"([^"]+)"', f["instr"])
+                    if not m or not f["result_ts"] or m.group(1) not in first_text:
+                        continue
+                    new = first_text[m.group(1)]
+                    if "".join(t.text or "" for t in f["result_ts"]).strip() != new:
+                        f["result_ts"][0].text = new
+                        f["result_ts"][0].set(XML_SPACE, "preserve")
+                        for t in f["result_ts"][1:]:
+                            t.text = ""
+                        n += 1
+    return n
+
+
 def sync_ref_results(body, changes):
     """Met à jour le résultat affiché des champs REF dont le texte était une
     ancienne valeur modifiée (`changes` : {ancien: nouveau})."""
@@ -1012,6 +1051,7 @@ def finalize(docx_path, items, date_cloture=None, parties_updates=None, initiale
             _highlight(s)
     sync_ref_results(body, changes)
     fix_date_refs(body)
+    sync_styleref_headers(d)
     if restore_numpages(body):
         remarques.append("Nombre de pages de la garde : le nombre tapé a été remplacé par le champ automatique.")
 
