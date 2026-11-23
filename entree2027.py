@@ -543,9 +543,16 @@ def _keys_region(loc):
         return None
     if i0 > 0 and _is_p(loc["els"][i0 - 1]) and not _text(loc["els"][i0 - 1]).strip():
         i0 -= 1
-    i1 = loc["rappel_attest"] if loc["rappel_attest"] is not None else loc["rubrique_attest"]
-    if i1 is None:
+    # Fin = dernier encadré de la rubrique : attestations (modèle 29/10,
+    # canevas 08/11) ou compteurs (canevas 23/11, attestations en premier).
+    ends = [loc[k] for k in ("rappel_attest", "rappel_compteurs", "rubrique_attest") if loc[k] is not None]
+    if not ends:
         return None
+    i1 = max(ends)
+    # + la ligne de photos des compteurs placée juste après l'encadré
+    els = loc["els"]
+    while i1 + 1 < len(els) and _is_p(els[i1 + 1]) and _has_drawing(els[i1 + 1]):
+        i1 += 1
     return i0, i1
 
 
@@ -817,12 +824,29 @@ def _tick(sdt):
             t.text = "☒"
 
 
+# Textes pré-imprimés des tableaux (canevas du 23/11 : unités, localisation)
+_PREIMPRIME = {"kWh", "m³", "m3", "voir descriptif", "% ≈ … litres", "☐", "☒"}
+
+
 def _table_filled(tbl):
+    """Vrai si la dactylo a rempli au moins une ligne. Ignore la 1re
+    colonne (libellés), les textes pré-imprimés (unités, « Localisation : »)
+    et, pour les attestations, la colonne « Attestation » ; une case
+    « Présentée » cochée compte comme remplie."""
     rows = tbl.findall(W + "tr")
     for tr in rows[1:]:
         cells = tr.findall(W + "tc")
-        if any(_text(tc).strip() for tc in cells[1:]):
-            return True
+        if len(cells) < 2:
+            continue
+        first = _text(cells[0]).strip()
+        if first in ("☐", "☒"):
+            if first == "☒" or any(_text(tc).strip() for tc in cells[2:]):
+                return True
+            continue
+        for tc in cells[1:]:
+            v = _text(tc).strip()
+            if v and v not in _PREIMPRIME and not re.fullmatch(r"Localisation\s*:?", v):
+                return True
     return False
 
 

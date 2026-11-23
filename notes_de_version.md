@@ -4,3 +4,4 @@
 - Expertises (ABEX) : les valeurs d'exemple du document type (G8 = 1990, C21 = 1, G42 = 800, date du jour en C3) ne sont jamais conservées. Si les notes ne disent rien, ou si vous tapez « ? », la cellule reste vide et est surlignée en jaune.
 - Entrées 2027 : l'en-tête des pages affiche bien « n° de dossier / GB », et non plus « 2026.0000 / BEX » du modèle.
 - Entrées AISBW : le reportage s'appelle « Reportage photos.docx », comme dans vos dossiers 3529 et 3654. S'il est déjà déposé vierge dans le dossier, c'est lui qui est rempli. Plus de PDF.
+- Entrées 2027 : prise en charge du canevas du 23/11 (attestations en premier, tableaux de 9 lignes, compteurs avec unités imprimées). Les textes déjà imprimés (kWh, m³, « Localisation : ») ne comptent plus comme un tableau rempli. Une case « Présentée » cochée compte comme remplie. Relancer la finalisation ne duplique plus la photo des compteurs.
