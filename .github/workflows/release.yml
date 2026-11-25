@@ -23,7 +23,13 @@ jobs:
           version=$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' updater.py)
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
           if gh release view "v$version" >/dev/null 2>&1; then
-            echo "existe=oui" >> "$GITHUB_OUTPUT"
+            # Un brouillon laissé par un essai interrompu (erreur GitHub) est
+            # supprimé pour être recréé ; une release publiée n'est jamais touchée.
+            if [ "$(gh release view "v$version" --json isDraft --jq .isDraft)" = "true" ]; then
+              gh release delete "v$version" --yes
+            else
+              echo "existe=oui" >> "$GITHUB_OUTPUT"
+            fi
           fi
         env:
           GH_TOKEN: ${{ github.token }}
