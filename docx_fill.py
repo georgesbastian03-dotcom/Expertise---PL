@@ -122,6 +122,18 @@ def fill_document_xml(xml: str, scalars: dict, positional: dict):
     return "".join(out_parts), sorted(unknown)
 
 
+# Marqueur invisible ajouté par le moteur derrière une valeur qui porte déjà
+# son unité (« 5 étudiants ») : le « personne(s) » imprimé juste après dans
+# le même paragraphe du gabarit est alors retiré (GB 25/11/2026).
+UNIT_MARK = "\u2063"
+_UNIT_RE = re.compile(UNIT_MARK + r"((?:(?!</w:p>).)*?)\s?personne\(s\)", re.S)
+
+
+def drop_unit_after_marker(xml: str) -> str:
+    xml = _UNIT_RE.sub(lambda mt: mt.group(1), xml)
+    return xml.replace(UNIT_MARK, "")
+
+
 def fill_docx(template_path: str, output_path: str, scalars: dict, positional: dict):
     """Remplit un gabarit .docx et écrit le résultat. Retourne la liste des
     balises [[...]] trouvées dans le gabarit mais absentes des données
@@ -132,6 +144,7 @@ def fill_docx(template_path: str, output_path: str, scalars: dict, positional: d
 
     doc_xml = contents["word/document.xml"].decode("utf-8")
     new_xml, unknown_tags = fill_document_xml(doc_xml, scalars, positional)
+    new_xml = drop_unit_after_marker(new_xml)
     contents["word/document.xml"] = new_xml.encode("utf-8")
 
     with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zout:

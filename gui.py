@@ -63,6 +63,12 @@ FORMAT_LABELS = {
 
 # Version courte utilisée dans la grille à deux colonnes (type x annexe),
 # pour que les deux colonnes tiennent côte à côte sans être coupées.
+ATTESTATION_CHOICES = {
+    "individuel": "Logement individuel",
+    "collectif": "Logement collectif",
+    "aucune": "Pas d'attestation",
+}
+
 ANNEXE_LABELS_SHORT = {
     "1A": "1A — sans règlement, existants",
     "1B": "1B — avec règlement, existants",
@@ -233,8 +239,35 @@ class PermisLocationTab(ttk.Frame):
                     command=self._on_annexe_change,
                 ).pack(anchor="w", pady=(0, 2))
 
+        # 3e colonne : attestation de conformité 2A (une par logement).
+        att_frame = ttk.Frame(columns)
+        att_frame.grid(row=0, column=len(FORMAT_LABELS), sticky="nw", padx=(30, 0))
+        ttk.Label(att_frame, text="Attestation 2A", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 4))
+        default_att = self.cfg.get("attestation_2a_type")
+        if default_att not in ATTESTATION_CHOICES:
+            # Ancien réglage (simple case à cocher) : on suit le type d'annexe.
+            default_att = (default_value.partition(":")[0] or "individuel") if self.cfg.get("attestations_2a", True) else "aucune"
+        self.attest_type_var = tk.StringVar(value=default_att)
+        for code, label in ATTESTATION_CHOICES.items():
+            ttk.Radiobutton(
+                att_frame, text=label, value=code, variable=self.attest_type_var,
+                command=self._on_attest_change,
+            ).pack(anchor="w", pady=(0, 2))
+        self.attest_only_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            att_frame, text="Attestations seules (sans rapport)", variable=self.attest_only_var,
+        ).pack(anchor="w", pady=(4, 0))
+
+    def _on_attest_change(self):
+        self.cfg["attestation_2a_type"] = self.attest_type_var.get()
+        config.save_config(self.cfg)
+
     def _on_annexe_change(self):
         self.cfg["last_type_annexe"] = self.type_annexe_var.get()
+        fmt = self.type_annexe_var.get().partition(":")[0]
+        if getattr(self, "attest_type_var", None) is not None and self.attest_type_var.get() != "aucune" and fmt:
+            self.attest_type_var.set(fmt)
+            self.cfg["attestation_2a_type"] = fmt
         config.save_config(self.cfg)
 
     def _selected_format_annexe(self):
@@ -660,13 +693,6 @@ class PermisLocationTab(ttk.Frame):
             variable=self.export_pdf_var,
             command=self._on_pdf_toggle,
         ).pack(anchor="w", pady=(0, 8))
-        self.attest_var = tk.BooleanVar(value=self.cfg.get("attestations_2a", True))
-        ttk.Checkbutton(
-            frame,
-            text="Générer aussi l'attestation de conformité 2A de chaque logement (gabarits « Attestation 2A - … »)",
-            variable=self.attest_var,
-            command=lambda: (self.cfg.__setitem__("attestations_2a", self.attest_var.get()), config.save_config(self.cfg)),
-        ).pack(anchor="w", pady=(0, 8))
 
         btn_row = ttk.Frame(frame)
         btn_row.pack(anchor="w")
@@ -710,11 +736,37 @@ class PermisLocationTab(ttk.Frame):
             )
             return
 
+        attest_type = self.attest_type_var.get()
+        attest_only = self.attest_only_var.get()
+        if attest_only and attest_type == "aucune":
+            messagebox.showwarning(
+                "Attestation 2A",
+                "« Attestations seules » est coché, mais « Pas d'attestation » est choisi : "
+                "choisissez Logement individuel ou Logement collectif dans la colonne Attestation 2A.",
+            )
+            return
+        if attest_type != "aucune" and attest_type != fmt:
+            messagebox.showerror(
+                "Attestation 2A",
+                "Vous avez choisi l'attestation « " + ATTESTATION_CHOICES[attest_type] + " », mais ce fichier Excel "
+                "correspond à « " + FORMAT_LABELS.get(fmt, fmt) + " ».\n\nChoisissez la bonne attestation avant de générer.",
+            )
+            return
+        if attest_type != "aucune":
+            att_tpl = os.path.join(gabarits_folder, generator.ATTESTATION_FILENAMES[attest_type])
+            if not os.path.isfile(att_tpl):
+                messagebox.showerror(
+                    "Gabarit manquant",
+                    "Le gabarit d'attestation est introuvable dans le dossier sélectionné :\n"
+                    + generator.ATTESTATION_FILENAMES[attest_type],
+                )
+                return
+
         status = generator.check_gabarits_folder(gabarits_folder)
         missing_needed = [
             s["filename"] for s in status if s["annexe"] == annexe and s["format"] == fmt and not s["found"]
         ]
-        if missing_needed:
+        if missing_needed and not attest_only:
             messagebox.showerror(
                 "Gabarit manquant",
                 "Le gabarit requis est introuvable dans le dossier sélectionné :\n" + ", ".join(missing_needed),
@@ -742,7 +794,8 @@ class PermisLocationTab(ttk.Frame):
         self.stop_event = threading.Event()
         self.stop_btn.config(state="normal")
         export_pdf = self.export_pdf_var.get()
-        attestations = self.attest_var.get()
+        attestations = attest_type != "aucune"
+        reports = not attest_only
         dossier_attest = generator.dossier_number(dossier, self.excel_path)
         initiales = self.cfg.get("mes_initiales") or "GB"
         _, units, m, _, _, extra_scalars = self.mission
@@ -764,11 +817,11 @@ class PermisLocationTab(ttk.Frame):
             try:
                 results = generator.generate_reports(
                     annexe, units, m, gabarits_folder, output_folder, export_pdf, progress, extra_scalars,
-                    plan_paths, should_stop=stop_event.is_set, attestations=attestations,
+                    plan_paths, should_stop=stop_event.is_set, attestations=attestations, reports=reports,
                     dossier=dossier_attest, initiales=initiales,
                 )
             except Exception as exc:  # noqa: BLE001
-                self.after(0, lambda: self._on_generation_failed(exc))
+                self.after(0, lambda e=exc: self._on_generation_failed(e))
                 return
             stopped = stop_event.is_set()
             self.after(
@@ -803,20 +856,21 @@ class PermisLocationTab(ttk.Frame):
         for r in results:
             unknown_tags.update(r.get("unknown_tags") or [])
 
+        quoi = "attestation(s) 2A" if results and all(r.get("attest_only") for r in results) else "rapport(s)"
         if stopped:
-            self.status_var.set(f"Génération arrêtée : {len(ok)} rapport(s) généré(s) dans {output_folder}.")
+            self.status_var.set(f"Génération arrêtée : {len(ok)} {quoi} généré(s) dans {output_folder}.")
         else:
-            self.status_var.set(f"{len(ok)} rapport(s) généré(s) dans {output_folder}.")
+            self.status_var.set(f"{len(ok)} {quoi} généré(s) dans {output_folder}.")
 
         total_attendu = total_units if total_units is not None else len(results)
         if stopped:
-            msg_lines = [f"Génération arrêtée par vous : {len(ok)} rapport(s) généré(s) sur {total_attendu} avant l'arrêt."]
+            msg_lines = [f"Génération arrêtée par vous : {len(ok)} {quoi} généré(s) sur {total_attendu} avant l'arrêt."]
         else:
-            msg_lines = [f"{len(ok)} rapport(s) généré(s) sur {total_attendu}."]
+            msg_lines = [f"{len(ok)} {quoi} généré(s) sur {total_attendu}."]
         if unknown_tags:
             msg_lines.append("Balises non reconnues dans le gabarit (laissées vides) : " + ", ".join(sorted(unknown_tags)))
         attests = [r for r in results if "attest_docx" in r]
-        if attests:
+        if attests and quoi == "rapport(s)":
             n_ok = sum(1 for r in attests if r.get("attest_docx"))
             msg_lines.append(f"{n_ok} attestation(s) 2A générée(s).")
             unk = sorted({t for r in attests for t in (r.get("attest_unknown") or [])})
@@ -1022,7 +1076,7 @@ class App(tk.Tk):
                     progress_cb=lambda msg: self.after(0, lambda: status_var.set(msg)),
                 )
             except Exception as exc:  # noqa: BLE001
-                self.after(0, lambda: self._on_update_failed(progress, exc))
+                self.after(0, lambda e=exc: self._on_update_failed(progress, e))
                 return
             self.after(0, updater.relaunch_and_exit)
 

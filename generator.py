@@ -143,6 +143,7 @@ def generate_reports(
     plan_paths=None,
     should_stop=None,
     attestations=False,
+    reports=True,
     dossier="",
     initiales="GB",
 ):
@@ -165,7 +166,7 @@ def generate_reports(
     os.makedirs(output_folder, exist_ok=True)
     results = []
 
-    rendered_pages = plans.render_pages(plan_paths) if plan_paths else []
+    rendered_pages = plans.render_pages(plan_paths) if (plan_paths and reports) else []
     scalars_with_plans = dict(extra_scalars or {})
     scalars_with_plans["Nbre_annexes"] = str(len(rendered_pages))
 
@@ -210,6 +211,16 @@ def generate_reports(
             entry["file_base"] = label["file_base"]
         else:
             used_file_bases[base] = 1
+
+        if not reports:
+            # « Attestations seules » : aucun rapport, seulement l'attestation 2A.
+            entry["attest_only"] = True
+            _make_attestation(entry, unit, m, gabarits_folder, output_folder, export_pdf, scalars_with_plans,
+                              dossier, initiales)
+            if entry.get("attest_error"):
+                entry["error"] = "Attestation : " + entry["attest_error"]
+            results.append(entry)
+            continue
 
         if not os.path.isfile(template_path):
             entry["error"] = f"Gabarit introuvable : {template_name}"

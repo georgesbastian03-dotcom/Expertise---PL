@@ -1,12 +1,9 @@
-- Permis de location : le programme génère aussi l'attestation de conformité 2A de chaque logement (un studio, ou une commu), à côté de son rapport. Elle est nommée « 2026.NNNN Attestation PL Commune Rue n°.bte GB », avec le PDF si l'option est cochée. Les gabarits « Attestation 2A - GABARIT LOGEMENT INDIVIDUEL/COLLECTIF » doivent se trouver dans le dossier des gabarits. Les deux dates de visite y figurent si « Date passage 2 » est remplie. La case peut être décochée. Une attestation existante n'est jamais remplacée : une version « v2 » est écrite à côté.
-- Expertises : il n'y a plus qu'un seul Word par dossier. Les photos sont placées dans le Word existant, modifié sur place après une copie de sécurité hors Dropbox (plus de « v2 », aucun PDF). Relancer l'opération remplace les anciennes planches.
-- Entrées 2027 : la date de la page de garde ne perd plus l'espace avant l'année (« 29 octobre2026 ») lors d'une mise à jour des champs. Si la dactylo a tapé le nombre de pages à la main, le champ automatique est remis.
-- Expertises (ABEX) : les valeurs d'exemple du document type (G8 = 1990, C21 = 1, G42 = 800, date du jour en C3) ne sont jamais conservées. Si les notes ne disent rien, ou si vous tapez « ? », la cellule reste vide et est surlignée en jaune.
-- Entrées 2027 : l'en-tête des pages affiche bien « n° de dossier / GB », et non plus « 2026.0000 / BEX » du modèle.
-- Entrées AISBW : le reportage s'appelle « Reportage photos.docx », comme dans vos dossiers 3529 et 3654. S'il est déjà déposé vierge dans le dossier, c'est lui qui est rempli. Plus de PDF.
-- Entrées 2027 : prise en charge du canevas du 23/11 (attestations en premier, tableaux de 9 lignes, compteurs avec unités imprimées). Les textes déjà imprimés (kWh, m³, « Localisation : ») ne comptent plus comme un tableau rempli. Une case « Présentée » cochée compte comme remplie. Relancer la finalisation ne duplique plus la photo des compteurs.
-- Entrées 2027 (vos clôtures du 25/11) :
-  - plus de saut de page forcé avant Clés/compteurs, Informations complémentaires, Constatations, Photographies et Autres photographies, et la galerie peut commencer en bas de page ;
-  - les sauts avant Notes liminaires, Éléments non investigués, Notes générales et Compléments et clôture sont gardés ;
-  - la photo des clés passe à environ 4 cm sur son plus grand côté.
-- Signature : la mention sous la signature est « Géomètre Expert & Expert Immobilier » (choix de GB du 25/11).
+- Permis de location : l'encadré « Type d'annexe » a une 3e colonne « Attestation 2A » : Logement individuel, Logement collectif ou Pas d'attestation. Elle remplace l'ancienne case à cocher et suit automatiquement le type d'annexe choisi. Le programme refuse de générer si l'attestation ne correspond pas au type de logement de l'Excel, ou si son gabarit manque.
+- Nouvelle case « Attestations seules (sans rapport) » : seules les attestations 2A sont produites, une par logement. Les gabarits d'annexe 1A-1D ne sont alors pas nécessaires.
+- Correctif : en cas d'erreur pendant la génération ou la mise à jour, le message d'erreur s'affiche de nouveau au lieu de rester bloqué.
+- Permis de location (collectif) : la colonne « Nbre occupants » peut contenir le nombre suivi d'un mot (« 1 étudiant »).
+  - Le tableau « Capacité d'accueil » reprend la valeur de chaque chambre.
+  - Après le tableau, « … ménage(s) » donne le nombre de chambres occupées, et la ligne suivante donne le total (« 5 étudiants »), sans le mot « personne(s) ».
+  - Si aucune chambre n'est remplie, le total est pris sur la ligne Commu.
+  - L'attestation 2A suit la même règle : « 5 ménage(s) » puis « 5 étudiants » ; pour un studio, « 1 ménage(s) » puis « 1 étudiant ».
+- La date de clôture est prise sur la ligne Commu, ou à défaut sur la première chambre où elle est remplie.
