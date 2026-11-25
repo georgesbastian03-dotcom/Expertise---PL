@@ -1,2 +1,2 @@
-- Permis de location : la colonne « Attestation 2A » part toujours sur le type de logement choisi (individuel ou collectif), même si l'ancienne case « attestation » était décochée.
-- Si « Pas d'attestation » est choisi, la fenêtre de fin de génération le signale.
+- Attestations 2A : elles sont de nouveau créées dans les dossiers dont le chemin est très long (plus de 260 caractères, limite de Windows). Le PDF passe par un dossier temporaire court.
+- Le numéro de dossier pris dans le chemin est maintenant celui du dossier lui-même (2026.1039), et non plus celui de la tranche (« 2026.1000 à 2026.1099 »).

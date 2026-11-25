@@ -37,13 +37,38 @@ ATTESTATION_FILENAMES = {
 }
 
 
+_NUM_RE = re.compile(r"(20\d\d)[.\-_ ](\d{4})")
+
+
 def dossier_number(dossier="", *paths):
-    """N° « 2026.NNNN » : celui saisi, sinon trouvé dans le chemin de l'Excel."""
-    for txt in (dossier, *paths):
-        mm = re.search(r"(20\d\d)[.\-_ ](\d{4})", txt or "")
-        if mm:
-            return f"{mm.group(1)}.{mm.group(2)}"
+    """N° « 2026.NNNN » : celui saisi, sinon trouvé dans le chemin de l'Excel,
+    en partant du dossier le plus profond. Les dossiers de tranche
+    (« 2026.1000 à 2026.1099 ») sont ignorés (GB 25/11 : 2026.1039 sortait
+    en 2026.1000)."""
+    mm = _NUM_RE.search(dossier or "")
+    if mm:
+        return f"{mm.group(1)}.{mm.group(2)}"
+    for txt in paths:
+        parts = re.split(r"[\\/]", txt or "")
+        for part in reversed(parts):
+            if re.search(r"\d{4}\s+[àa]\s+20\d\d", part):
+                continue  # dossier de tranche
+            mm = _NUM_RE.search(part)
+            if mm:
+                return f"{mm.group(1)}.{mm.group(2)}"
     return (dossier or "").strip()
+
+
+def _lp(path):
+    """Chemin utilisable au-delà de 260 caractères sous Windows (préfixe \\\\?\\)."""
+    if os.name != "nt" or not path:
+        return path
+    p = os.path.abspath(path)
+    if p.startswith("\\\\?\\") or len(p) < 240:
+        return p
+    if p.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + p[2:]
+    return "\\\\?\\" + p
 
 
 def attestation_name(unit, m, dossier, initiales="GB"):
@@ -62,11 +87,11 @@ def attestation_name(unit, m, dossier, initiales="GB"):
 
 def _free_path(path):
     """Ne remplace jamais une attestation existante : « … v2.docx », « … v3 »…"""
-    if not os.path.exists(path):
+    if not os.path.exists(_lp(path)):
         return path
     base, ext = os.path.splitext(path)
     k = 2
-    while os.path.exists(f"{base} v{k}{ext}"):
+    while os.path.exists(_lp(f"{base} v{k}{ext}")):
         k += 1
     return f"{base} v{k}{ext}"
 
@@ -239,7 +264,7 @@ def generate_reports(
 
         docx_path = os.path.join(output_folder, label["file_base"] + ".docx")
         try:
-            unknown_tags = docx_fill.fill_docx(template_path, docx_path, scalars, positional)
+            unknown_tags = docx_fill.fill_docx(template_path, _lp(docx_path), scalars, positional)
             entry["docx_path"] = docx_path
             entry["unknown_tags"] = unknown_tags
         except Exception as exc:  # noqa: BLE001
@@ -249,7 +274,7 @@ def generate_reports(
 
         if rendered_pages:
             try:
-                plans.append_pages_to_docx(docx_path, rendered_pages, plans_area)
+                plans.append_pages_to_docx(_lp(docx_path), rendered_pages, plans_area)
             except Exception as exc:  # noqa: BLE001
                 entry["error"] = f"Plans non ajoutés : {exc}"
                 results.append(entry)
@@ -282,7 +307,7 @@ def _make_attestation(entry, unit, m, gabarits_folder, output_folder, export_pdf
     try:
         scalars, positional = engine.build_data_spec_attestation(unit, m, extra_scalars)
         path = _free_path(os.path.join(output_folder, attestation_name(unit, m, dossier, initiales) + ".docx"))
-        entry["attest_unknown"] = docx_fill.fill_docx(tpl, path, scalars, positional)
+        entry["attest_unknown"] = docx_fill.fill_docx(tpl, _lp(path), scalars, positional)
         entry["attest_docx"] = path
     except Exception as exc:  # noqa: BLE001
         entry["attest_error"] = str(exc)
@@ -301,5 +326,18 @@ def _export_pdf(docx_path: str) -> str:
     from docx2pdf import convert  # import différé : dépendance optionnelle
 
     pdf_path = str(Path(docx_path).with_suffix(".pdf"))
-    convert(docx_path, pdf_path)
+    if len(os.path.abspath(pdf_path)) < 240:
+        convert(docx_path, pdf_path)
+        return pdf_path
+    # Chemin trop long pour Word : conversion dans un dossier temporaire
+    # court, puis déplacement du PDF à côté du .docx.
+    import shutil
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="pl_") as tmp:
+        tmp_docx = os.path.join(tmp, "doc.docx")
+        tmp_pdf = os.path.join(tmp, "doc.pdf")
+        shutil.copyfile(_lp(docx_path), tmp_docx)
+        convert(tmp_docx, tmp_pdf)
+        shutil.move(tmp_pdf, _lp(pdf_path))
     return pdf_path
