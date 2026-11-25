@@ -168,7 +168,12 @@ def generate_reports(
 
     rendered_pages = plans.render_pages(plan_paths) if (plan_paths and reports) else []
     scalars_with_plans = dict(extra_scalars or {})
-    scalars_with_plans["Nbre_annexes"] = str(len(rendered_pages))
+    # Le regroupement des plans dépend de la taille utile de la page du
+    # gabarit : on la lit une fois sur le gabarit du lot.
+    plans_area = None
+    if rendered_pages and units:
+        plans_area = plans.usable_area(os.path.join(gabarits_folder, TEMPLATE_FILENAMES[annexe][units[0]["format"]]))
+    scalars_with_plans["Nbre_annexes"] = str(len(plans.pack_pages(rendered_pages, plans_area)))
 
     total = len(units)
     used_file_bases = {}
@@ -244,7 +249,7 @@ def generate_reports(
 
         if rendered_pages:
             try:
-                plans.append_pages_to_docx(docx_path, rendered_pages)
+                plans.append_pages_to_docx(docx_path, rendered_pages, plans_area)
             except Exception as exc:  # noqa: BLE001
                 entry["error"] = f"Plans non ajoutés : {exc}"
                 results.append(entry)

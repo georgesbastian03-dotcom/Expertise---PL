@@ -1,8 +1,8 @@
 """Gestion des pages de plans à joindre en fin de rapport (images et/ou PDF),
 et calcul automatique du nombre de pages pour la balise [[Nbre_annexes]].
 
-Les pages sont ajoutées directement dans le .docx (une image pleine page par
-page de plan, avec saut de page avant chacune) : l'export PDF (qui repart du
+Les pages sont ajoutées directement dans le .docx (une image par plan, deux
+plans courts partageant une même page quand ils y tiennent) : l'export PDF (qui repart du
 .docx) les inclut donc automatiquement, sans traitement séparé.
 """
 import io
@@ -54,11 +54,26 @@ def _image_to_png_bytes(pil_image):
     return buf.getvalue(), pil_image.width, pil_image.height
 
 
+def _trim_white(pil_image, threshold=245, pad=12):
+    """Retire les marges blanches autour du plan (garde une petite marge),
+    pour que deux plans courts puissent tenir sur une même page."""
+    rgb = pil_image.convert("RGB")
+    gray = rgb.convert("L")
+    mask = gray.point(lambda v: 255 if v < threshold else 0)
+    box = mask.getbbox()
+    if not box:
+        return rgb
+    l, t, r, b = box
+    l, t = max(0, l - pad), max(0, t - pad)
+    r, b = min(rgb.width, r + pad), min(rgb.height, b + pad)
+    return rgb.crop((l, t, r, b))
+
+
 def render_pages(paths):
     """Retourne une liste ordonnée de (png_bytes, largeur_px, hauteur_px), une
     entrée par page, dans l'ordre des fichiers fournis (et des pages, pour un
-    PDF). À appeler UNE SEULE FOIS par lot de génération (le même jeu de
-    plans est ensuite ajouté à chaque rapport)."""
+    PDF), marges blanches retirées. À appeler UNE SEULE FOIS par lot de
+    génération (le même jeu de plans est ensuite ajouté à chaque rapport)."""
     pages = []
     for path in paths:
         ext = _ext(path)
@@ -68,35 +83,87 @@ def render_pages(paths):
             with fitz.open(path) as doc:
                 for page in doc:
                     pix = page.get_pixmap(dpi=150)
-                    png_bytes = pix.tobytes("png")
-                    pages.append((png_bytes, pix.width, pix.height))
+                    im = Image.open(io.BytesIO(pix.tobytes("png")))
+                    pages.append(_image_to_png_bytes(_trim_white(im)))
         else:
             with Image.open(path) as im:
                 im = ImageOps.exif_transpose(im)
-                png_bytes, w, h = _image_to_png_bytes(im)
-                pages.append((png_bytes, w, h))
+                pages.append(_image_to_png_bytes(_trim_white(im)))
     return pages
 
 
-def append_pages_to_docx(docx_path, pages):
-    """Ajoute chaque page (png_bytes, w_px, h_px) comme une page pleine à la
-    fin du document Word donné (une image par page, avec saut de page avant
-    chacune)."""
+# Zone utile par défaut d'une page du rapport (pouces), marge de sécurité
+# pour les paragraphes qui portent les images, et espace entre deux plans.
+PAGE_W_IN = 6.5
+PAGE_H_IN = 9.5
+SAFETY_IN = 0.6
+GAP_IN = 0.2
+
+
+def usable_area(docx_path):
+    """(largeur, hauteur) utiles en pouces de la dernière section du Word
+    (page moins marges), ou les valeurs par défaut si illisibles."""
+    try:
+        import docx
+
+        sec = docx.Document(docx_path).sections[-1]
+        w = (sec.page_width - sec.left_margin - sec.right_margin) / 914400
+        h = (sec.page_height - sec.top_margin - sec.bottom_margin) / 914400
+        if w > 1 and h > 1:
+            return min(w, PAGE_W_IN + 1), h - SAFETY_IN
+    except Exception:  # noqa: BLE001
+        pass
+    return PAGE_W_IN, PAGE_H_IN - SAFETY_IN
+
+
+def _size_in(w_px, h_px, area):
+    """Taille d'affichage (pouces) d'un plan : pleine largeur, hauteur bornée."""
+    page_w, page_h = area
+    if not w_px or not h_px:
+        return page_w, page_h
+    w, h = page_w, page_w * h_px / w_px
+    if h > page_h:
+        h = page_h
+        w = page_h * w_px / h_px
+    return w, h
+
+
+def pack_pages(pages, area=None):
+    """Regroupe les plans par page (GB 25/11/2026) : deux plans consécutifs
+    partagent une page quand ils y tiennent l'un sous l'autre à leur taille
+    normale (pleine largeur), sans être réduits. Retourne une liste de
+    groupes (listes de pages)."""
+    area = area or (PAGE_W_IN, PAGE_H_IN - SAFETY_IN)
+    groups = []
+    for page in pages:
+        _, w_px, h_px = page
+        h = _size_in(w_px, h_px, area)[1]
+        if groups and len(groups[-1]) == 1:
+            prev = groups[-1][0]
+            h_prev = _size_in(prev[1], prev[2], area)[1]
+            if h_prev + GAP_IN + h <= area[1]:
+                groups[-1].append(page)
+                continue
+        groups.append([page])
+    return groups
+
+
+def append_pages_to_docx(docx_path, pages, area=None):
+    """Ajoute les plans à la fin du document Word donné : un saut de page
+    avant chaque page de plans, un ou deux plans par page (voir pack_pages)."""
     if not pages:
         return
     import docx
-    from docx.shared import Emu, Inches
+    from docx.shared import Inches, Pt
 
-    MAX_W = Inches(6.5)
-    MAX_H = Inches(9.5)
-
+    area = area or usable_area(docx_path)
     document = docx.Document(docx_path)
-    for png_bytes, w_px, h_px in pages:
+    for group in pack_pages(pages, area):
         document.add_page_break()
-        width = MAX_W
-        height = Emu(int(width * h_px / w_px)) if w_px else MAX_H
-        if height > MAX_H:
-            height = MAX_H
-            width = Emu(int(height * w_px / h_px)) if h_px else MAX_W
-        document.add_picture(io.BytesIO(png_bytes), width=width, height=height)
+        for png_bytes, w_px, h_px in group:
+            w, h = _size_in(w_px, h_px, area)
+            document.add_picture(io.BytesIO(png_bytes), width=Inches(w), height=Inches(h))
+            fmt = document.paragraphs[-1].paragraph_format
+            fmt.space_before = Pt(0)
+            fmt.space_after = Pt(GAP_IN * 72)
     document.save(docx_path)

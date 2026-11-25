@@ -547,7 +547,8 @@ class PermisLocationTab(ttk.Frame):
         if self.plan_paths:
             total = plans.count_total_pages(self.plan_paths)
             self.plans_count_label.config(
-                text=f"{len(self.plan_paths)} fichier(s) — {total} page(s) au total seront ajoutées."
+                text=f"{len(self.plan_paths)} fichier(s) — {total} plan(s), au plus {total} page(s) : "
+                "deux plans courts sont regroupés sur une même page."
             )
         else:
             self.plans_count_label.config(text="Aucun plan sélectionné — aucune page ne sera ajoutée.")

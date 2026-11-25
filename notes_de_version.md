@@ -1,3 +1,1 @@
-- Permis de location (collectif) : la nouvelle colonne Excel « Capacité d'accueil » est reprise dans la colonne F du tableau des chambres, sous la balise [[Capacité d’accueil]] du gabarit 1B du 25/11.
-- Récapitulatif (« … ménage(s) / … personne(s) ») : le nombre de ménages correspond aux chambres qui ont une capacité. Le total des personnes est pris dans la colonne « Nbre occupants » de la ligne Commu (« 5 étudiants »), ou à défaut dans la somme des capacités. L'attestation 2A suit la même règle.
-- Les anciens gabarits, qui utilisent [[Nbre occupants]] dans le tableau, fonctionnent toujours.
+- Permis de location : plans plus compacts. Les marges blanches de chaque plan sont retirées. Deux plans qui tiennent l'un sous l'autre sur une même page, à pleine largeur et sans être réduits, sont regroupés ; un plan pleine page reste seul. Le nombre d'annexes ([[Nbre_annexes]]) compte les pages réellement ajoutées.
