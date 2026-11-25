@@ -39,8 +39,9 @@ FIELD_ALIASES = {
     "etage": ["etage"],
     "avAr": ["av/ ar", "av/ar"],
     "gcd": ["g/c/d"],
-    "nbOccupants": ["nbre occupants", "nbre occup", "nbre d'occupants", "nombre d'occupants", "nombre occupants",
-                    "capacite d'accueil", "capacite daccueil", "capacite accueil", "capacite"],
+    "nbOccupants": ["nbre occupants", "nbre occup", "nbre d'occupants", "nombre d'occupants", "nombre occupants"],
+    # Colonne ajoutée par GB le 25/11/2026 : capacité d'accueil de chaque chambre.
+    "capaciteAccueil": ["capacite d'accueil", "capacite d’accueil", "capacite daccueil", "capacite accueil", "capacite"],
     "nbPiecesInd": ["nbre pieces individuels"],
     "nbPiecesColl": ["nbre pieces collectives"],
     "nbSdb": ["nbre sdb/sdd"],
@@ -382,12 +383,15 @@ def menages_personnes_collectif(unit, m):
     from docx_fill import UNIT_MARK
     chambres = unit["chambres"]
     vals = [cell(c, m, "nbOccupants") for c in chambres]
+    caps = [cell(c, m, "capaciteAccueil") for c in chambres]
     remplies = [v for v in vals if to_num(v) > 0]
-    menages = str(len(remplies) or len(chambres))
+    occupees = [i for i in range(len(chambres)) if to_num(vals[i]) > 0 or to_num(caps[i]) > 0]
+    menages = str(len(occupees) or len(chambres))
     if remplies:
         personnes = occupants_total(vals)
     else:
-        personnes = format_val(cell(unit["commun_row"], m, "nbOccupants")) or "0"
+        personnes = (format_val(cell(unit["commun_row"], m, "nbOccupants"))
+                     or occupants_total(caps) or "0")
     if re.search(r"[^\d\s,.]", personnes):
         personnes += UNIT_MARK
     return menages, personnes
@@ -568,7 +572,7 @@ def build_data_spec_collectif(unit, m, extra_scalars=None):
         "Nbre_pieces_individuelles": str(nb_chambres),
         "Nbre_pieces_collectives": format_val(cell(row, m, "nbPiecesColl")),
         "Nbre pièces collectives": format_val(cell(row, m, "nbPiecesColl")),
-        "Capacite_accueil": "",
+        "Capacite_accueil": "",  # ancienne balise, non utilisée par les gabarits actuels
         # Identification du bailleur (vide tant que Georges n'a pas ajouté
         # les colonnes correspondantes dans son Excel).
         "Nom bailleur": str(cell(row, m, "nomBailleur") or "").strip(),
@@ -604,6 +608,15 @@ def build_data_spec_collectif(unit, m, extra_scalars=None):
     gcd = [str(cell(c, m, "gcd") or "").strip() for c in chambres]
     menages, personnes = menages_personnes_collectif(unit, m)
 
+    def cap_chambre(c):
+        return format_val(cell(c, m, "capaciteAccueil")) or format_val(cell(c, m, "nbOccupants"))
+
+    def _cap_slots(k):
+        return [""] * max(0, k)
+
+    def occ_chambre(c):
+        return format_val(cell(c, m, "nbOccupants")) or format_val(cell(c, m, "capaciteAccueil"))
+
     positional = {
         "N_chambre": [format_val(cell(c, m, "bte")) for c in chambres],
         "Nbre_pieces_individuels": nb_pieces_ind,
@@ -631,8 +644,17 @@ def build_data_spec_collectif(unit, m, extra_scalars=None):
         # Après le tableau, le gabarit 1B alterne « … ménage(s) » et
         # « … personne(s) » (deux fois) : ménages = chambres occupées,
         # personnes = total (GB 25/11/2026).
-        "Nbre occupants": [format_val(cell(c, m, "nbOccupants")) for c in chambres] + pad
-        + [menages, personnes] * 4,
+        # Gabarit du 25/11 : la colonne F du tableau est [[Capacité d’accueil]]
+        # et [[Nbre occupants]] ne reste que dans le récapitulatif (4 fois).
+        # Ancien gabarit : [[Nbre occupants]] aussi dans les 19 lignes.
+        "Nbre occupants": lambda n: (
+            [occ_chambre(c) for c in chambres] + pad + [menages, personnes] * 4 if n > 8
+            # Récapitulatif = toujours les 4 dernières occurrences (une ligne du
+            # tableau restée en [[Nbre occupants]] reçoit sa capacité).
+            else _cap_slots(n - 4) + [menages, personnes] * 2
+        ),
+        "Capacité d’accueil": [cap_chambre(c) for c in chambres] + pad,
+        "Capacité d'accueil": [cap_chambre(c) for c in chambres] + pad,
     }
     return scalars, positional
 
@@ -672,6 +694,8 @@ def build_data_spec_individuel(unit, m, extra_scalars=None):
         "Surface_studio": surf_studio_val,
         "Surface studios": surf_studio_val,
         "Nbre_occupants": format_val(cell(row, m, "nbOccupants")),
+        "Capacité d’accueil": format_val(cell(row, m, "capaciteAccueil")),
+        "Capacité d'accueil": format_val(cell(row, m, "capaciteAccueil")),
         "Nbre_pieces_individuelles": "",
         "Nbre_pieces_collectives": "",
         "Nbre_sanitaires": "",
