@@ -1,2 +1,1 @@
-- Attestations 2A : elles sont de nouveau créées dans les dossiers dont le chemin est très long (plus de 260 caractères, limite de Windows). Le PDF passe par un dossier temporaire court.
-- Le numéro de dossier pris dans le chemin est maintenant celui du dossier lui-même (2026.1039), et non plus celui de la tranche (« 2026.1000 à 2026.1099 »).
+- Permis de location : plus de « m² m² » quand le gabarit écrit déjà « m² » après la balise (page 14, superficie des pièces collectives).

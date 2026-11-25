@@ -92,6 +92,11 @@ def fill_document_xml(xml: str, scalars: dict, positional: dict):
         else:
             unknown.add(tag_name)
             value = ""
+        # Le gabarit imprime parfois déjà l'unité après la balise
+        # (« [[Superficie pièces  collectives]] m² ») : on ne la répète pas
+        # (GB 25/11/2026, « 17,4 m² m² »).
+        if isinstance(value, str) and value.endswith(" m²") and re.match(r"\s*m²", concatenated[me:me + 6]):
+            value = value[:-3]
         matches.append((ms, me, _xml_escape(value)))
 
     if not matches:
