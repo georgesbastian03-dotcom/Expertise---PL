@@ -354,15 +354,34 @@ def _make_attestation(entry, unit, m, gabarits_folder, output_folder, export_pdf
             entry["attest_error"] = f"PDF de l'attestation non généré : {exc}"
 
 
+def _convert_pdf(src: str, dst: str):
+    """docx2pdf avec tolérance : Word plante parfois à la fermeture
+    (« Word.Application.Quit ») alors que le PDF est déjà écrit. Si le PDF
+    existe, c'est un succès ; sinon on réessaie une fois."""
+    from docx2pdf import convert  # import différé : dépendance optionnelle
+    import time
+
+    start = time.time() - 2
+    for attempt in range(2):
+        try:
+            convert(src, dst)
+            return
+        except Exception:  # noqa: BLE001
+            if (os.path.isfile(_lp(dst)) and os.path.getsize(_lp(dst)) > 0
+                    and os.path.getmtime(_lp(dst)) >= start):
+                return
+            if attempt == 1:
+                raise
+            time.sleep(3)
+
+
 def _export_pdf(docx_path: str) -> str:
     """Convertit un .docx en PDF via Word (nécessite Word installé sur
     Windows). Lève une exception si docx2pdf n'est pas disponible ou échoue —
     ce n'est jamais bloquant pour la génération du .docx lui-même."""
-    from docx2pdf import convert  # import différé : dépendance optionnelle
-
     pdf_path = str(Path(docx_path).with_suffix(".pdf"))
     if len(os.path.abspath(pdf_path)) < 240:
-        convert(docx_path, pdf_path)
+        _convert_pdf(docx_path, pdf_path)
         return pdf_path
     # Chemin trop long pour Word : conversion dans un dossier temporaire
     # court, puis déplacement du PDF à côté du .docx.
@@ -373,6 +392,6 @@ def _export_pdf(docx_path: str) -> str:
         tmp_docx = os.path.join(tmp, "doc.docx")
         tmp_pdf = os.path.join(tmp, "doc.pdf")
         shutil.copyfile(_lp(docx_path), tmp_docx)
-        convert(tmp_docx, tmp_pdf)
+        _convert_pdf(tmp_docx, tmp_pdf)
         shutil.move(tmp_pdf, _lp(pdf_path))
     return pdf_path
