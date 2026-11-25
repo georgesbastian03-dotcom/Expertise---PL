@@ -68,6 +68,14 @@ def fill_document_xml(xml: str, scalars: dict, positional: dict):
         run_ranges.append({"run": run, "g_start": g_start, "g_end": pos, "content": content})
     concatenated = "".join(concat_parts)
 
+    # Une valeur positionnelle peut être une fonction recevant le nombre
+    # d'occurrences de la balise dans le gabarit (gabarits de versions
+    # différentes : la même balise n'y apparaît pas le même nombre de fois).
+    occurrences = {}
+    for m in _TAG_RE.finditer(concatenated):
+        occurrences[m.group(1)] = occurrences.get(m.group(1), 0) + 1
+    positional = {k: (v(occurrences.get(k, 0)) if callable(v) else v) for k, v in positional.items()}
+
     counters = {}
     unknown = set()
     matches = []
