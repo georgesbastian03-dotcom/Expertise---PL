@@ -1,1 +1,1 @@
-- Permis de location : le message « n ligne(s) ignorée(s) » est remplacé par deux coches. Elles indiquent si les coordonnées du bailleur et de l'expert ont bien été reconnues dans les encadrés de l'Excel, avec le nom trouvé.
+- Permis de location : nouvelle colonne « Générer » dans la liste des logements. Cliquez sur un logement pour le décocher, par exemple s'il n'est pas encore visité : seuls les logements cochés ☑ sont générés, avec leur attestation.
