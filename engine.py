@@ -467,11 +467,27 @@ def build_units_collectif(rows, m, header_row_index=0):
     return units
 
 
+def _is_identification_row(row, m) -> bool:
+    """Ligne des encadrés « Identification du bailleur / expert » placés sous
+    le tableau (« Nom bailleur », « CP », « Idenfication expert agrée »…) :
+    ce n'est pas un logement (GB 25/11/2026 : 20 studios lus comme 38)."""
+    t = normalize_header(cell(row, m, "typeLogement"))
+    if not t:
+        return False
+    if t in BAILLEUR_LABELS or t in EXPERT_LABELS or t in _BASE_LABEL_WORDS:
+        return True
+    if "identi" in t or "idenfi" in t or "bailleur" in t or "expert" in t or "agrement" in t:
+        return True
+    # Sans adresse, n°, boîte ni date de passage, ce n'est pas un logement.
+    return all(is_empty(cell(row, m, f)) or not str(cell(row, m, f)).strip()
+               for f in ("adresse", "numero", "bte", "datePassage"))
+
+
 def build_units_individuel(rows, m, header_row_index=0):
     units = []
     for row in rows[header_row_index + 1:]:
         v = cell(row, m, "typeLogement")
-        if not is_empty(v) and str(v).strip():
+        if not is_empty(v) and str(v).strip() and not _is_identification_row(row, m):
             units.append({"format": "individuel", "row": row})
     return units
 

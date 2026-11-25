@@ -1,1 +1,1 @@
-- Permis de location : nouvelle colonne « Générer » dans la liste des logements. Cliquez sur un logement pour le décocher, par exemple s'il n'est pas encore visité : seuls les logements cochés ☑ sont générés, avec leur attestation.
+- Permis de location (individuel) : les lignes des encadrés « Identification du bailleur / expert » ne sont plus prises pour des logements. Traité de Rome 4 : 19 studios au lieu de 38.
