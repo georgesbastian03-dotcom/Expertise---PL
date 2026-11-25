@@ -1,1 +1,2 @@
-- Permis de location : plans plus compacts. Les marges blanches de chaque plan sont retirées. Deux plans qui tiennent l'un sous l'autre sur une même page, à pleine largeur et sans être réduits, sont regroupés ; un plan pleine page reste seul. Le nombre d'annexes ([[Nbre_annexes]]) compte les pages réellement ajoutées.
+- Permis de location : la colonne « Attestation 2A » part toujours sur le type de logement choisi (individuel ou collectif), même si l'ancienne case « attestation » était décochée.
+- Si « Pas d'attestation » est choisi, la fenêtre de fin de génération le signale.
