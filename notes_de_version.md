@@ -1,5 +1,7 @@
-# Version 1.4.11
+# Version 1.4.12
 
-- Permis de location : nouvelle case « Le bailleur a procédé aux réparations ». Quand elle est cochée, la phrase « Le bailleur a procédé aux réparations des points cités ci-dessus. » est ajoutée dans chaque rapport généré, juste sous les remarques (ventilation, humidité, électricité, diverses, garde-corps). Aucune modification des Excel ni des gabarits n'est nécessaire.
-- La case n'est pas mémorisée : elle est décochée à chaque ouverture, pour ne jamais ajouter la phrase par erreur.
-- Si un gabarit contient déjà une balise [[Travaux_realises]], la phrase est placée à cet endroit.
+- Permis de location : la case « Le bailleur a procédé aux réparations » est remplacée par une liste « Travaux du bailleur » avec trois phrases plus prudentes, ajoutées sous les remarques :
+  - « Constaté par l'expert (contre-visite) » : « Lors de la contre-visite du [date], l'expert a constaté que les points cités ci-dessus ont été remédiés. » (date à indiquer, obligatoire) ;
+  - « Déclaré par le bailleur (non vérifié) » : « Selon les déclarations du bailleur, les réparations des points cités ci-dessus ont été réalisées. Ces travaux n'ont pas fait l'objet d'une vérification par l'expert. » ;
+  - « Photos / factures transmises par le bailleur » : « Le bailleur a transmis à l'expert [des photos / des factures / des photos et des factures] attestant de la réparation des points cités ci-dessus. »
+- Par défaut « Aucune phrase », à chaque ouverture du programme.
