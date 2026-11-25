@@ -162,7 +162,27 @@ def load_mission(excel_path: str):
     return fmt, units, m, unmatched, ignored_rows, extra_scalars
 
 
-TRAVAUX_PHRASE = "Le bailleur a procédé aux réparations des points cités ci-dessus."
+TRAVAUX_CHOICES = [
+    ("aucune", "Aucune phrase"),
+    ("constate", "Constaté par l'expert (contre-visite)"),
+    ("declare", "Déclaré par le bailleur (non vérifié)"),
+    ("documents", "Photos / factures transmises par le bailleur"),
+]
+TRAVAUX_DOCUMENTS = ["des photos", "des factures", "des photos et des factures"]
+
+
+def travaux_phrase(choice, date="", documents="des photos"):
+    """Phrase ajoutée sous les remarques selon ce que l'expert peut
+    réellement affirmer sur les travaux du bailleur."""
+    if choice == "constate":
+        quand = f" du {date.strip()}" if date and date.strip() else ""
+        return f"Lors de la contre-visite{quand}, l'expert a constaté que les points cités ci-dessus ont été remédiés."
+    if choice == "declare":
+        return ("Selon les déclarations du bailleur, les réparations des points cités ci-dessus ont été réalisées. "
+                "Ces travaux n'ont pas fait l'objet d'une vérification par l'expert.")
+    if choice == "documents":
+        return f"Le bailleur a transmis à l'expert {documents or 'des photos'} attestant de la réparation des points cités ci-dessus."
+    return ""
 
 
 def generate_reports(
@@ -180,7 +200,7 @@ def generate_reports(
     reports=True,
     dossier="",
     initiales="GB",
-    travaux_realises=False,
+    travaux_texte="",
 ):
     """Génère un .docx (et .pdf si demandé) par unité. Retourne une liste de
     dicts {file_base, docx_path, pdf_path, unknown_tags, error}.
@@ -203,8 +223,8 @@ def generate_reports(
 
     rendered_pages = plans.render_pages(plan_paths) if (plan_paths and reports) else []
     scalars_with_plans = dict(extra_scalars or {})
-    # Case « travaux réalisés » : phrase ajoutée sous les remarques.
-    scalars_with_plans[docx_fill.TRAVAUX_TAG] = TRAVAUX_PHRASE if travaux_realises else ""
+    # Phrase « travaux du bailleur » (voir travaux_phrase) sous les remarques.
+    scalars_with_plans[docx_fill.TRAVAUX_TAG] = travaux_texte or ""
     # Le regroupement des plans dépend de la taille utile de la page du
     # gabarit : on la lit une fois sur le gabarit du lot.
     plans_area = None

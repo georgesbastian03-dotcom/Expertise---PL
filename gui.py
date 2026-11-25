@@ -746,13 +746,26 @@ class PermisLocationTab(ttk.Frame):
             command=self._on_pdf_toggle,
         ).pack(anchor="w", pady=(0, 4))
 
-        # Pas mémorisée : à cocher volontairement pour chaque lot.
-        self.travaux_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            frame,
-            text="Le bailleur a procédé aux réparations (ajoute la phrase sous les remarques)",
-            variable=self.travaux_var,
-        ).pack(anchor="w", pady=(0, 8))
+        # Phrase « travaux du bailleur » : jamais mémorisée, à choisir
+        # volontairement pour chaque lot.
+        trav = ttk.Frame(frame)
+        trav.pack(anchor="w", pady=(0, 8))
+        ttk.Label(trav, text="Travaux du bailleur :").pack(side="left")
+        self.travaux_labels = {lab: key for key, lab in generator.TRAVAUX_CHOICES}
+        self.travaux_var = tk.StringVar(value=generator.TRAVAUX_CHOICES[0][1])
+        cb = ttk.Combobox(trav, textvariable=self.travaux_var, state="readonly", width=40,
+                          values=[lab for _k, lab in generator.TRAVAUX_CHOICES])
+        cb.pack(side="left", padx=(6, 0))
+        cb.bind("<<ComboboxSelected>>", lambda _e: self._on_travaux_change())
+        self.travaux_date_frame = ttk.Frame(trav)
+        ttk.Label(self.travaux_date_frame, text="date :").pack(side="left", padx=(8, 4))
+        self.travaux_date_var = tk.StringVar(value="")
+        ttk.Entry(self.travaux_date_frame, textvariable=self.travaux_date_var, width=12).pack(side="left")
+        self.travaux_docs_frame = ttk.Frame(trav)
+        ttk.Label(self.travaux_docs_frame, text="documents :").pack(side="left", padx=(8, 4))
+        self.travaux_docs_var = tk.StringVar(value=generator.TRAVAUX_DOCUMENTS[0])
+        ttk.Combobox(self.travaux_docs_frame, textvariable=self.travaux_docs_var, state="readonly", width=24,
+                     values=generator.TRAVAUX_DOCUMENTS).pack(side="left")
 
         btn_row = ttk.Frame(frame)
         btn_row.pack(anchor="w")
@@ -770,6 +783,18 @@ class PermisLocationTab(ttk.Frame):
         ttk.Label(frame, textvariable=self.status_var, foreground="#1f5f6e").pack(anchor="w", pady=(8, 0))
 
         self.stop_event = None
+
+    def _travaux_choice(self):
+        return self.travaux_labels.get(self.travaux_var.get(), "aucune")
+
+    def _on_travaux_change(self):
+        choice = self._travaux_choice()
+        self.travaux_date_frame.pack_forget()
+        self.travaux_docs_frame.pack_forget()
+        if choice == "constate":
+            self.travaux_date_frame.pack(side="left")
+        elif choice == "documents":
+            self.travaux_docs_frame.pack(side="left")
 
     def _on_pdf_toggle(self):
         self.cfg["export_pdf"] = self.export_pdf_var.get()
@@ -837,6 +862,10 @@ class PermisLocationTab(ttk.Frame):
             messagebox.showwarning("Aucun logement coché", "Cochez au moins un logement à générer dans la liste.")
             return
 
+        if self._travaux_choice() == "constate" and not self.travaux_date_var.get().strip():
+            messagebox.showwarning("Date de contre-visite", "Indiquez la date de la contre-visite à côté du choix « Constaté par l'expert ».")
+            return
+
         # On propose toujours un dossier de destination tout prêt (créé s'il
         # n'existe pas encore) à côté de l'Excel, pour qu'il soit déjà
         # sélectionné à l'ouverture de la fenêtre — l'utilisateur peut bien
@@ -858,7 +887,8 @@ class PermisLocationTab(ttk.Frame):
         self.stop_event = threading.Event()
         self.stop_btn.config(state="normal")
         export_pdf = self.export_pdf_var.get()
-        travaux_realises = self.travaux_var.get()
+        travaux_texte = generator.travaux_phrase(
+            self._travaux_choice(), self.travaux_date_var.get(), self.travaux_docs_var.get())
         attestations = attest_type != "aucune"
         reports = not attest_only
         dossier_attest = generator.dossier_number(dossier, self.excel_path)
@@ -885,7 +915,7 @@ class PermisLocationTab(ttk.Frame):
                 results = generator.generate_reports(
                     annexe, units, m, gabarits_folder, output_folder, export_pdf, progress, extra_scalars,
                     plan_paths, should_stop=stop_event.is_set, attestations=attestations, reports=reports,
-                    dossier=dossier_attest, initiales=initiales, travaux_realises=travaux_realises,
+                    dossier=dossier_attest, initiales=initiales, travaux_texte=travaux_texte,
                 )
             except Exception as exc:  # noqa: BLE001
                 self.after(0, lambda e=exc: self._on_generation_failed(e))
