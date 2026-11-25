@@ -1,1 +1,1 @@
-- Permis de location : plus de « m² m² » quand le gabarit écrit déjà « m² » après la balise (page 14, superficie des pièces collectives).
+- Permis de location : les rapports sont nommés comme les attestations, « 2026.NNNN PL Commune Rue n°.bte GB » (par exemple « 2026.1039 PL Louvain-la-Neuve Rue Paulin Ladeuze 20.119-123 GB »).

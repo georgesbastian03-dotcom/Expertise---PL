@@ -71,7 +71,13 @@ def _lp(path):
     return "\\\\?\\" + p
 
 
-def attestation_name(unit, m, dossier, initiales="GB"):
+def report_name(unit, m, dossier, initiales="GB"):
+    """« 2026.NNNN PL <Commune> <Rue> <n°>.<bte> GB » (sans .docx), comme les
+    attestations (GB 25/11/2026)."""
+    return attestation_name(unit, m, dossier, initiales, kind="PL")
+
+
+def attestation_name(unit, m, dossier, initiales="GB", kind="Attestation PL"):
     """« 2026.NNNN Attestation PL <Commune> <Rue> <n°>.<bte> GB » (sans .docx)."""
     row = unit["commun_row"] if unit["format"] == "collectif" else unit["row"]
     commune = str(engine.cell(row, m, "localite") or "").strip()
@@ -80,7 +86,7 @@ def attestation_name(unit, m, dossier, initiales="GB"):
     bte_v = engine.cell(row, m, "bte")
     bte = str(bte_v).strip() if bte_v is not None else ""
     num = f"{n}.{bte}" if bte else n
-    parts = [dossier, "Attestation PL", commune, rue, num, initiales]
+    parts = [dossier, kind, commune, rue, num, initiales]
     name = " ".join(p for p in parts if p)
     return re.sub(r'[\\/:*?"<>|]+', "-", re.sub(r"\s+", " ", name)).strip()
 
@@ -214,6 +220,9 @@ def generate_reports(
         template_name = TEMPLATE_FILENAMES[annexe][fmt]
         template_path = os.path.join(gabarits_folder, template_name)
 
+        # Nom du rapport : « 2026.NNNN PL <Commune> <Rue> <n°>.<bte> GB ».
+        label = dict(label)
+        label["file_base"] = report_name(unit, m, dossier, initiales) or label["file_base"]
         entry = {"file_base": label["file_base"], "docx_path": None, "pdf_path": None, "unknown_tags": [], "error": None}
 
         # Une ligne sans adresse/n°/bte exploitable donnerait un nom de
