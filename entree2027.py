@@ -75,7 +75,7 @@ COMPRESS_MAX_PX = 1400
 COMPRESS_QUALITY = 80
 
 EXPERT_NOM = "Georges BASTIAN"
-EXPERT_QUALITE = "Géomètre-expert & Expert immobilier agréé"
+EXPERT_QUALITE = "Géomètre Expert & Expert Immobilier"
 
 ROLES = ("piece", "cles", "compteur", "exclure")
 ROLE_LABELS = {"piece": "Pièce", "cles": "Clés", "compteur": "Compteur", "exclure": "Exclure"}

@@ -9,3 +9,4 @@
   - plus de saut de page forcé avant Clés/compteurs, Informations complémentaires, Constatations, Photographies et Autres photographies, et la galerie peut commencer en bas de page ;
   - les sauts avant Notes liminaires, Éléments non investigués, Notes générales et Compléments et clôture sont gardés ;
   - la photo des clés passe à environ 4 cm sur son plus grand côté.
+- Signature : la mention sous la signature est « Géomètre Expert & Expert Immobilier » (choix de GB du 25/11).
