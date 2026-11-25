@@ -634,8 +634,13 @@ class PermisLocationTab(ttk.Frame):
         self.count_label = ttk.Label(top, text="")
         self.count_label.pack(side="right")
 
-        columns = ("adresse", "n", "bte", "chambres")
+        columns = ("gen", "adresse", "n", "bte", "chambres")
         self.tree = ttk.Treeview(frame, columns=columns, show="headings", height=8)
+        # Colonne « À générer » (GB 25/11/2026) : un clic décoche un logement
+        # pas encore visité ; seuls les logements cochés sont générés.
+        self.tree.heading("gen", text="Générer")
+        self.tree.column("gen", width=70, anchor="center")
+        self.tree.bind("<Button-1>", self._on_tree_click)
         self.tree.heading("adresse", text="Adresse")
         self.tree.heading("n", text="N°")
         self.tree.heading("bte", text="Bte")
@@ -645,6 +650,8 @@ class PermisLocationTab(ttk.Frame):
         self.tree.column("bte", width=90, anchor="e")
         self.tree.column("chambres", width=80, anchor="e")
         self.tree.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Cliquez sur un logement pour le cocher ou le décocher : seuls les logements cochés ☑ sont générés.",
+                  foreground="#5c6570").pack(anchor="w", pady=(4, 0))
 
         self.warning_label = ttk.Label(frame, text="", foreground="#93611c", wraplength=640, justify="left")
         self.warning_label.pack(fill="x", pady=(6, 0))
@@ -674,7 +681,8 @@ class PermisLocationTab(ttk.Frame):
             nb_ch = len(u["chambres"]) if fmt == "collectif" else None
             if nb_ch is not None and nb_ch > engine.MAX_CHAMBRES_TEMPLATE:
                 overflow.append(label)
-            self.tree.insert("", "end", values=(label["adresse"], label["n"], label["bte"], nb_ch if nb_ch is not None else "—"))
+            self.tree.insert("", "end", iid=str(len(self.tree.get_children())),
+                             values=("☑", label["adresse"], label["n"], label["bte"], nb_ch if nb_ch is not None else "—"))
 
         warnings = []
         extra_scalars = extra_scalars or {}
@@ -698,6 +706,32 @@ class PermisLocationTab(ttk.Frame):
 
         self.generate_btn.config(state="normal")
         self.status_var.set("")
+
+    def _on_tree_click(self, event):
+        """Coche / décoche un logement (clic sur la case ou la ligne)."""
+        if self.tree.identify_region(event.x, event.y) != "cell":
+            return
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        vals = list(self.tree.item(iid, "values"))
+        vals[0] = "☐" if vals[0] == "☑" else "☑"
+        self.tree.item(iid, values=vals)
+        self._refresh_selection_count()
+        return "break"
+
+    def _checked_indexes(self):
+        return [int(i) for i in self.tree.get_children() if self.tree.item(i, "values")[0] == "☑"]
+
+    def _refresh_selection_count(self):
+        if not self.mission:
+            return
+        total = len(self.mission[1])
+        n = len(self._checked_indexes())
+        txt = f"{total} logement(s) détecté(s)"
+        if n != total:
+            txt += f" — {n} coché(s) à générer"
+        self.count_label.config(text=txt)
 
     # ---- Génération ---------------------------------------------------------
     def _build_generate_row(self):
@@ -791,6 +825,10 @@ class PermisLocationTab(ttk.Frame):
             )
             return
 
+        if not self._checked_indexes():
+            messagebox.showwarning("Aucun logement coché", "Cochez au moins un logement à générer dans la liste.")
+            return
+
         # On propose toujours un dossier de destination tout prêt (créé s'il
         # n'existe pas encore) à côté de l'Excel, pour qu'il soit déjà
         # sélectionné à l'ouverture de la fenêtre — l'utilisateur peut bien
@@ -816,7 +854,9 @@ class PermisLocationTab(ttk.Frame):
         reports = not attest_only
         dossier_attest = generator.dossier_number(dossier, self.excel_path)
         initiales = self.cfg.get("mes_initiales") or "GB"
-        _, units, m, _, _, extra_scalars = self.mission
+        _, all_units, m, _, _, extra_scalars = self.mission
+        checked = set(self._checked_indexes())
+        units = [u for i, u in enumerate(all_units) if i in checked]
         total_units = len(units)
         adresses = sorted({engine.unit_label(u, m)["adresse"] for u in units})
         plan_paths = list(self.plan_paths)
