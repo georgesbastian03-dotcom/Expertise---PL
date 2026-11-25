@@ -1,1 +1,1 @@
-- Permis de location : les rapports sont nommés comme les attestations, « 2026.NNNN PL Commune Rue n°.bte GB » (par exemple « 2026.1039 PL Louvain-la-Neuve Rue Paulin Ladeuze 20.119-123 GB »).
+- Permis de location : le message « n ligne(s) ignorée(s) » est remplacé par deux coches. Elles indiquent si les coordonnées du bailleur et de l'expert ont bien été reconnues dans les encadrés de l'Excel, avec le nom trouvé.

@@ -648,12 +648,17 @@ class PermisLocationTab(ttk.Frame):
 
         self.warning_label = ttk.Label(frame, text="", foreground="#93611c", wraplength=640, justify="left")
         self.warning_label.pack(fill="x", pady=(6, 0))
+        # Coordonnées lues dans les encadrés de l'Excel (GB 25/11/2026 :
+        # deux coches plutôt que « n ligne(s) ignorée(s) »).
+        self.coords_label = ttk.Label(frame, text="", foreground="#2f7a4a", justify="left")
+        self.coords_label.pack(fill="x", pady=(4, 0))
 
     def _clear_preview(self):
         self.tree.delete(*self.tree.get_children())
         self.format_badge.config(text="—")
         self.count_label.config(text="")
         self.warning_label.config(text="")
+        self.coords_label.config(text="")
         self.generate_btn.config(state="disabled")
 
     def _render_preview(self):
@@ -672,8 +677,18 @@ class PermisLocationTab(ttk.Frame):
             self.tree.insert("", "end", values=(label["adresse"], label["n"], label["bte"], nb_ch if nb_ch is not None else "—"))
 
         warnings = []
-        if ignored:
-            warnings.append(f"{ignored} ligne(s) ignorée(s) (type de logement non reconnu).")
+        extra_scalars = extra_scalars or {}
+        bailleur = " ".join(v for v in (extra_scalars.get("Nom bailleur"), extra_scalars.get("Prénom bailleur")) if v)
+        expert = " ".join(v for v in (extra_scalars.get("Nom expert"), extra_scalars.get("Prénom expert")) if v)
+        lignes = [
+            ("☑ Coordonnées du bailleur reconnues (" + bailleur + ")") if bailleur
+            else "☐ Coordonnées du bailleur non trouvées dans l'Excel (encadré « Identification du bailleur »)",
+            ("☑ Coordonnées de l'expert reconnues (" + expert + ")") if expert
+            else "☐ Coordonnées de l'expert non trouvées dans l'Excel : celles de GB enregistrées dans le programme sont utilisées",
+        ]
+        self.coords_label.config(
+            text="\n".join(lignes), foreground="#2f7a4a" if bailleur and expert else "#93611c"
+        )
         if overflow:
             warnings.append(
                 f"{len(overflow)} logement(s) dépassent les 19 chambres prévues par le gabarit — "
