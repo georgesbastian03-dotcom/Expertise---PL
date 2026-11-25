@@ -147,6 +147,42 @@ def drop_unit_after_marker(xml: str) -> str:
     return xml.replace(UNIT_MARK, "")
 
 
+TRAVAUX_TAG = "Travaux_realises"
+_REM_TAGS = ("Rem garde-corps", "Rem divers", "Rem Electricité", "Rem Humidité", "Rem ventilation", "Remarques")
+_PARA_RE = re.compile(r"<w:p[ >].*?</w:p>", re.S)
+
+
+def _para_text(p_xml):
+    return "".join(re.findall(r"<w:t(?:\s[^>]*)?>([^<]*)</w:t>", p_xml))
+
+
+def inject_travaux_paragraph(xml):
+    """Ajoute, juste sous le dernier paragraphe de remarques du gabarit
+    ([[Rem garde-corps]], à défaut une autre balise de remarques), un
+    paragraphe [[Travaux_realises]] reprenant sa mise en forme. Ne fait rien
+    si le gabarit contient déjà cette balise ou n'a aucune balise de
+    remarques."""
+    if TRAVAUX_TAG in re.sub(r"<[^>]+>", "", xml):
+        return xml
+    best = None
+    for m in _PARA_RE.finditer(xml):
+        text = _para_text(m.group(0))
+        for rank, tag in enumerate(_REM_TAGS):
+            if "[[" + tag + "]]" in text:
+                if best is None or rank < best[0] or (rank == best[0] and m.end() > best[1].end()):
+                    best = (rank, m)
+                break
+    if best is None:
+        return xml
+    para = best[1].group(0)
+    ppr = re.search(r"<w:pPr>.*?</w:pPr>", para, re.S)
+    rpr = re.search(r"<w:rPr>.*?</w:rPr>", para[ppr.end() if ppr else 0:], re.S)
+    new_p = ("<w:p>" + (ppr.group(0) if ppr else "") + "<w:r>" + (rpr.group(0) if rpr else "")
+             + '<w:t xml:space="preserve">[[' + TRAVAUX_TAG + "]]</w:t></w:r></w:p>")
+    end = best[1].end()
+    return xml[:end] + new_p + xml[end:]
+
+
 def fill_docx(template_path: str, output_path: str, scalars: dict, positional: dict):
     """Remplit un gabarit .docx et écrit le résultat. Retourne la liste des
     balises [[...]] trouvées dans le gabarit mais absentes des données
@@ -156,6 +192,8 @@ def fill_docx(template_path: str, output_path: str, scalars: dict, positional: d
         contents = {info.filename: zin.read(info.filename) for info in infos}
 
     doc_xml = contents["word/document.xml"].decode("utf-8")
+    if str(scalars.get(TRAVAUX_TAG) or "").strip():
+        doc_xml = inject_travaux_paragraph(doc_xml)
     new_xml, unknown_tags = fill_document_xml(doc_xml, scalars, positional)
     new_xml = drop_unit_after_marker(new_xml)
     contents["word/document.xml"] = new_xml.encode("utf-8")
