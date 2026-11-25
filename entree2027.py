@@ -62,8 +62,7 @@ GRILLE_CASE_W_CM = 7.87
 GRILLE_COL_CM = 8.5
 GRILLE_ESPACE_CM = 0.25
 # Photo des clés (flottante) et des compteurs (une ligne)
-CLES_H_CM = 3.0
-CLES_W_MAX_CM = 4.0
+CLES_COTE_CM = 4.0    # GB 25/11 : plus grand côté ≈ 4 cm (3566, 3756)
 CLES_TOP_CM = 0.1
 COMPTEURS_H_CM = 3.0
 COMPTEURS_LARGEUR_MAX_CM = 16.0
@@ -459,6 +458,39 @@ def sync_styleref_headers(document):
                         for t in f["result_ts"][1:]:
                             t.text = ""
                         n += 1
+    return n
+
+
+_SANS_SAUT = ("CLES, COMPTEURS ET ENTRETIENS", "INFORMATIONS COMPLEMENTAIRES", "CONSTATATIONS",
+              "PHOTOGRAPHIES", "AUTRES PHOTOGRAPHIES")
+
+
+def remove_section_breaks(body):
+    """Retire les sauts de page forcés juste avant les rubriques de
+    `_SANS_SAUT` (paragraphes vides ne contenant qu'un saut de page, et
+    « saut de page avant » sur le titre). Retourne le nombre de sauts
+    retirés."""
+    n = 0
+    els = _children(body)
+    for i, el in enumerate(els):
+        t = ee._norm(_text(el)).strip()
+        if not t or not any(t.startswith(k) for k in _SANS_SAUT):
+            continue
+        if t.startswith("PHOTOGRAPHIES") and "CERTIFI" not in t:
+            continue
+        if _is_p(el):
+            ppr = el.find(W + "pPr")
+            pbb = ppr.find(W + "pageBreakBefore") if ppr is not None else None
+            if pbb is not None:
+                ppr.remove(pbb)
+                n += 1
+        j = i - 1
+        while j >= 0 and _is_p(els[j]) and not _text(els[j]).strip() and not _has_drawing(els[j]) \
+                and els[j].find(".//" + W + "sectPr") is None:
+            if _has_page_break(els[j]):
+                body.remove(els[j])
+                n += 1
+            j -= 1
     return n
 
 
@@ -1161,11 +1193,9 @@ def finalize(docx_path, items, date_cloture=None, parties_updates=None, initiale
     loc = _locate(body)
     if cles and loc["titre_cles"] is not None:
         data, w, h = prepared[id(cles[0])]
-        cy = CLES_H_CM * EMU_PER_CM
-        cx = cy * w / h
-        if cx > CLES_W_MAX_CM * EMU_PER_CM:
-            cx = CLES_W_MAX_CM * EMU_PER_CM
-            cy = cx * h / w
+        # Plus grand côté ≈ 4 cm (GB : 3566 = 3,14 × 4,19 ; 3756 = 4 × 3)
+        k = CLES_COTE_CM * EMU_PER_CM / max(w, h)
+        cx, cy = w * k, h * k
         i = loc["titre_cles"]
         host = loc["els"][i - 1] if i > 0 and _is_p(loc["els"][i - 1]) and not _text(loc["els"][i - 1]).strip() \
             and not _has_page_break(loc["els"][i - 1]) else loc["els"][i]
@@ -1196,21 +1226,12 @@ def finalize(docx_path, items, date_cloture=None, parties_updates=None, initiale
                 p.append(r)
             p.append(_picture_run(d, prepared[id(it)][0], cx * k, cy * k))
         loc["els"][loc["rappel_compteurs"]].addnext(p)
-    # Page blanche évitée : quand la page clés/compteurs est pleine, le saut
-    # de page manuel suivi d'une ligne vide déborde sur une page vide. Le
-    # saut manuel est remplacé par « saut de page avant » sur le titre
-    # « Informations complémentaires ».
-    loc = _locate(body)
-    if loc["rappel_attest"] is not None:
-        els = loc["els"]
-        i_info = _find_child(els, lambda e: _is_p(e) and ee._norm(_text(e)).startswith("INFORMATIONS COMPLEMENTAIRES"),
-                             loc["rappel_attest"] + 1)
-        between = els[loc["rappel_attest"] + 1: i_info] if i_info is not None else []
-        if i_info is not None and all(_is_p(e) and not _text(e).strip() and not _has_drawing(e)
-                                      and e.find(".//" + W + "sectPr") is None for e in between):
-            for e in between:
-                body.remove(e)
-            ee._set_ppr_flag(els[i_info], "pageBreakBefore", True)
+    # Sauts de page (règle GB 25/11) : les rubriques s'enchaînent, sans
+    # saut forcé avant Clés/compteurs, Informations complémentaires,
+    # CONSTATATIONS, PHOTOGRAPHIES et AUTRES PHOTOGRAPHIES (la galerie peut
+    # commencer en bas de page). Les sauts avant Notes liminaires, Éléments
+    # non investigués, Notes générales et Compléments et clôture restent.
+    remove_section_breaks(body)
 
     # 4f. Cases à cocher
     loc = _locate(body)
@@ -1228,13 +1249,6 @@ def finalize(docx_path, items, date_cloture=None, parties_updates=None, initiale
             _tick(cbs[1])
         if tbl is not None and not _table_filled(tbl) and label != "attestations":
             remarques.append(f"Tableau des {label} vide : vérifier la dictée (relevés entre parties ?).")
-
-    # 5. Saut de page avant « Compléments et clôture » retiré (les autres
-    # photographies et la clôture partagent la page, comme le 2026.3384).
-    if loc["autres_photos"] is not None and loc["titre_cloture"] is not None:
-        for el in els[loc["autres_photos"] + 1: loc["titre_cloture"]]:
-            if _is_p(el) and _has_page_break(el) and not _text(el).strip() and not _has_drawing(el):
-                body.remove(el)
 
     # 6. Date de clôture figée
     texte_date = format_date_cloture(date_cloture or date.today().strftime("%d/%m/%Y"))

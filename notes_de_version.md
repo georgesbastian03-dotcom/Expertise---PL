@@ -5,3 +5,7 @@
 - Entrées 2027 : l'en-tête des pages affiche bien « n° de dossier / GB », et non plus « 2026.0000 / BEX » du modèle.
 - Entrées AISBW : le reportage s'appelle « Reportage photos.docx », comme dans vos dossiers 3529 et 3654. S'il est déjà déposé vierge dans le dossier, c'est lui qui est rempli. Plus de PDF.
 - Entrées 2027 : prise en charge du canevas du 23/11 (attestations en premier, tableaux de 9 lignes, compteurs avec unités imprimées). Les textes déjà imprimés (kWh, m³, « Localisation : ») ne comptent plus comme un tableau rempli. Une case « Présentée » cochée compte comme remplie. Relancer la finalisation ne duplique plus la photo des compteurs.
+- Entrées 2027 (vos clôtures du 25/11) :
+  - plus de saut de page forcé avant Clés/compteurs, Informations complémentaires, Constatations, Photographies et Autres photographies, et la galerie peut commencer en bas de page ;
+  - les sauts avant Notes liminaires, Éléments non investigués, Notes générales et Compléments et clôture sont gardés ;
+  - la photo des clés passe à environ 4 cm sur son plus grand côté.
