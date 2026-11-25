@@ -821,7 +821,7 @@ class PermisLocationTab(ttk.Frame):
                     dossier=dossier_attest, initiales=initiales,
                 )
             except Exception as exc:  # noqa: BLE001
-                self.after(0, lambda: self._on_generation_failed(exc))
+                self.after(0, lambda e=exc: self._on_generation_failed(e))
                 return
             stopped = stop_event.is_set()
             self.after(
@@ -1076,7 +1076,7 @@ class App(tk.Tk):
                     progress_cb=lambda msg: self.after(0, lambda: status_var.set(msg)),
                 )
             except Exception as exc:  # noqa: BLE001
-                self.after(0, lambda: self._on_update_failed(progress, exc))
+                self.after(0, lambda e=exc: self._on_update_failed(progress, e))
                 return
             self.after(0, updater.relaunch_and_exit)
 

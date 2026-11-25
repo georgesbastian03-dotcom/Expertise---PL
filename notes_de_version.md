@@ -1,2 +1,3 @@
 - Permis de location : l'encadré « Type d'annexe » a une 3e colonne « Attestation 2A » : Logement individuel, Logement collectif ou Pas d'attestation. Elle remplace l'ancienne case à cocher et suit automatiquement le type d'annexe choisi. Le programme refuse de générer si l'attestation ne correspond pas au type de logement de l'Excel, ou si son gabarit manque.
 - Nouvelle case « Attestations seules (sans rapport) » : seules les attestations 2A sont produites, une par logement. Les gabarits d'annexe 1A-1D ne sont alors pas nécessaires.
+- Correctif : en cas d'erreur pendant la génération ou la mise à jour, le message d'erreur s'affiche de nouveau au lieu de rester bloqué.
