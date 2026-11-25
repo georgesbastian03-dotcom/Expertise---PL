@@ -12,8 +12,9 @@ Ce module fait la partie mécanique de l'encodage :
     onglets restent intacts ; Excel recalcule tout à l'ouverture ;
   * photos : façade en page de garde (cadre existant du Word, rotation du
     modèle gérée) et planches 3 × 3 sous « PHOTO(S) DE L'IMMEUBLE » ;
-  * jamais d'écrasement d'un fichier sur lequel l'expert a travaillé : une
-    nouvelle version (« … v2 ») est écrite à côté.
+  * ABEX : jamais d'écrasement, une nouvelle version (« … v2 ») est écrite
+    à côté ; Word : un seul par dossier, modifié sur place après copie de
+    sécurité hors Dropbox (règle GB 09/11/2026), aucun PDF.
 """
 import io
 import json
@@ -90,8 +91,12 @@ SURFACES = [
     ("C27", "Réserve aménageable"), ("C28", "Combles / grenier utile"), ("C29", "Toit plat / carport aménagé"),
     ("C30", "Surface terrasse"), ("C31", "Parking intérieur"), ("C32", "Parking extérieur"),
 ]
-# Valeurs d'exemple du modèle vierge à toujours écraser (C21 = 1, G42 = 800)
-A_ECRASER = {"C21": 0, "G42": 0}
+# Valeurs d'exemple du modèle vierge (document type : C21 = 1, G42 = 800,
+# G8 = 1990, C3 = date du jour). Règle GB 21/11/2026 : toujours remplacées
+# par les notes ; si les notes ne disent rien (ou « ? »), la cellule reste
+# VIDE et surlignée en jaune — jamais la valeur du modèle.
+EXEMPLES_MODELE = ("C21", "G42", "G8", "C3")
+JAUNE = "FFFFFF00"
 
 PLANCHE_PX = (2400, 1800)
 PLANCHE_W_CM = 16.0
@@ -170,9 +175,9 @@ def load_saisie(dossier):
 # --------------------------------------------------------------------------
 def parse_number(txt):
     """« 1 250,5 » → 1250.5 ; « =9*6,98+2 » → formule « 9*6.98+2 » ;
-    vide → None."""
+    vide ou « ? » → None."""
     s = (txt or "").strip()
-    if not s:
+    if not s or s == "?":
         return None
     if s.startswith("="):
         return ("formule", s[1:].replace(",", ".").replace(" ", ""))
@@ -201,9 +206,9 @@ def cell_values(data):
     for key, cell, label, kind in CHAMPS:
         txt = (data.get(key) or "").strip() if isinstance(data.get(key), str) else data.get(key)
         if kind == "texte":
-            out[cell] = txt or None
+            out[cell] = (txt if txt != "?" else None) or None
         elif kind == "date":
-            out[cell] = excel_date(txt) if txt else None
+            out[cell] = excel_date(txt) if txt and txt != "?" else None
         else:
             try:
                 out[cell] = parse_number(txt if isinstance(txt, str) else ("" if txt is None else str(txt)))
@@ -219,10 +224,56 @@ def cell_values(data):
         except ExpertiseError as exc:
             raise ExpertiseError(f"Surface « {label} » : {exc}") from exc
         out[cell] = v
-    for cell, v in A_ECRASER.items():
-        if out.get(cell) is None:
-            out[cell] = v
+    for cell in EXEMPLES_MODELE:
+        out.setdefault(cell, None)  # jamais la valeur d'exemple du modèle
     return out
+
+
+def cellules_jaunes(data, values):
+    """Cellules à surligner en jaune : valeurs du document type restées
+    sans donnée des notes, et toute saisie « ? » (doute dans les notes)."""
+    out = {c for c in EXEMPLES_MODELE if values.get(c) is None}
+    for key, cell, _label, _kind in CHAMPS:
+        if str(data.get(key) or "").strip() == "?":
+            out.add(cell)
+    for cell, _label in SURFACES:
+        if str((data.get("surfaces") or {}).get(cell, "")).strip() == "?":
+            out.add(cell)
+    return out
+
+
+def _yellow_styles(styles_xml, sheet_root, refs):
+    """Ajoute à styles.xml un remplissage jaune et, pour chaque style des
+    cellules `refs`, une copie de ce style avec ce remplissage ; met les
+    cellules sur la copie. Retourne le nouveau styles.xml (bytes)."""
+    from copy import deepcopy as _dc
+
+    from lxml import etree
+
+    st = etree.fromstring(styles_xml)
+    fills = st.find(X + "fills")
+    fill = etree.SubElement(fills, X + "fill")
+    pf = etree.SubElement(fill, X + "patternFill", patternType="solid")
+    etree.SubElement(pf, X + "fgColor", rgb=JAUNE)
+    etree.SubElement(pf, X + "bgColor", indexed="64")
+    fills.set("count", str(len(fills)))
+    fill_id = len(fills) - 1
+    xfs = st.find(X + "cellXfs")
+    clones = {}
+    sd = sheet_root.find(X + "sheetData")
+    for c in sd.iter(X + "c"):
+        if c.get("r") not in refs:
+            continue
+        s_old = int(c.get("s") or 0)
+        if s_old not in clones:
+            xf = _dc(xfs[s_old])
+            xf.set("fillId", str(fill_id))
+            xf.set("applyFill", "1")
+            xfs.append(xf)
+            clones[s_old] = len(xfs) - 1
+        c.set("s", str(clones[s_old]))
+    xfs.set("count", str(len(xfs)))
+    return etree.tostring(st, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
 # --------------------------------------------------------------------------
@@ -399,9 +450,10 @@ def _set_cell(sheet_data, ref, value):
         t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
 
 
-def fill_abex(model_path, output_path, values):
+def fill_abex(model_path, output_path, values, jaunes=()):
     """Copie le modèle vierge vers `output_path` en remplissant l'onglet
-    Données. Excel recalcule les formules à l'ouverture."""
+    Données (cellules `jaunes` surlignées). Excel recalcule les formules à
+    l'ouverture."""
     from lxml import etree
 
     with zipfile.ZipFile(model_path) as zin:
@@ -410,6 +462,10 @@ def fill_abex(model_path, output_path, values):
         sd = root.find(X + "sheetData")
         for ref, v in values.items():
             _set_cell(sd, ref, v)
+        for ref in jaunes:
+            if ref not in values:
+                _set_cell(sd, ref, None)
+        new_styles = _yellow_styles(zin.read("xl/styles.xml"), root, set(jaunes)) if jaunes else None
         new_sheet = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
         wb = etree.fromstring(zin.read("xl/workbook.xml"))
         calc = wb.find(X + "calcPr")
@@ -424,6 +480,8 @@ def fill_abex(model_path, output_path, values):
                     zout.writestr(item, new_sheet)
                 elif item.filename == "xl/workbook.xml":
                     zout.writestr(item, new_wb)
+                elif item.filename == "xl/styles.xml" and new_styles is not None:
+                    zout.writestr(item, new_styles)
                 elif item.filename == "xl/calcChain.xml":
                     continue  # recalculée par Excel
                 else:
@@ -468,19 +526,19 @@ def create_abex(folder, data, model_path, initiales="GB"):
                              "on ne part jamais de l'ABEX d'un autre dossier.")
     values = cell_values(data)
     remarques = []
-    if values.get("G8") is None:
-        remarques.append("Année de construction non remplie : cellule G8 laissée vide (le modèle mettait 1990).")
-    if values.get("C3") is None:
-        remarques.append("Date de visite non remplie : C3 laissée vide (le modèle mettait la date du jour).")
+    jaunes = cellules_jaunes(data, values)
+    if jaunes:
+        remarques.append("Cellules laissées vides et surlignées en jaune (rien ou « ? » dans les notes ; jamais la "
+                         "valeur du document type) : " + ", ".join(sorted(jaunes)) + ".")
     remarques += ecarts_cadastre(data)
-    if values.get("G42") in (None, 0) and data.get("terrain_notes"):
-        remarques.append("Superficie du terrain non encodée en G42 (= 0) alors qu'un autre document en donne une : "
+    if values.get("G42") is None and data.get("terrain_notes"):
+        remarques.append("Superficie du terrain non encodée en G42 alors qu'un autre document en donne une : "
                          "reprenez la valeur écrite qui revient le plus souvent (CADGIS, plan, notes).")
     target = next_version(os.path.join(folder, output_names(folder, initiales)["abex"]))
     if os.path.basename(target) != output_names(folder, initiales)["abex"]:
         remarques.append(f"Un ABEX existait déjà : nouvelle version « {os.path.basename(target)} » (l'existant n'est pas "
                          "touché).")
-    fill_abex(model_path, target, values)
+    fill_abex(model_path, target, values, jaunes)
     save_saisie(data)
     return {"path": target, "remarques": remarques}
 
@@ -563,10 +621,11 @@ def _replace_cover(document, drawing, item):
 
 
 def insert_photos(word_path, cover, planche_items, progress_cb=None):
-    """Écrit une nouvelle version du Word (« … v2.docx ») avec la photo de
-    façade en garde et les planches 3 × 3 sous « PHOTO(S) DE
-    L'IMMEUBLE ». Le Word d'origine n'est pas modifié. Retourne {"path",
-    "planches", "remarques"}."""
+    """Place la photo de façade en garde et les planches 3 × 3 sous
+    « PHOTO(S) DE L'IMMEUBLE » DANS le Word existant (règle GB 09/11/2026 :
+    un seul Word par dossier, jamais de v2/v3, aucun PDF). Une copie de
+    sécurité est faite hors Dropbox avant l'écriture. Retourne {"path",
+    "planches", "remarques", "sauvegarde"}."""
     import docx
 
     def say(msg):
@@ -575,6 +634,7 @@ def insert_photos(word_path, cover, planche_items, progress_cb=None):
 
     folder = os.path.dirname(word_path)
     securite.check_dossier_folder(folder)
+    securite.ensure_not_locked(word_path)
     d = docx.Document(word_path)
     body = d.element.body
     remarques = []
@@ -629,7 +689,9 @@ def insert_photos(word_path, cover, planche_items, progress_cb=None):
                 ee._set_ppr_flag(el, "pageBreakBefore", True)
                 break
     e27._drop_unused_rels(d, removed)
-    target = next_version(word_path)
+    target = word_path
+    say("Copie de sécurité…")
+    sauvegarde = securite.backup_file(word_path)
     say("Enregistrement…")
     temp = securite.temp_path_for(target)
     try:
@@ -640,8 +702,8 @@ def insert_photos(word_path, cover, planche_items, progress_cb=None):
             os.remove(temp)  # fichier temporaire du programme uniquement
         raise ExpertiseError(f"Enregistrement impossible : {exc}") from exc
     securite.commit_temp(temp, target)
-    remarques.append(f"Nouvelle version écrite à côté : « {os.path.basename(target)} » (l'original n'est pas modifié).")
-    return {"path": target, "planches": planches, "remarques": remarques}
+    remarques.append(f"Word mis à jour sur place ; copie de sécurité : {sauvegarde}")
+    return {"path": target, "planches": planches, "remarques": remarques, "sauvegarde": sauvegarde}
 
 
 def photo_items(folder):

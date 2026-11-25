@@ -10,8 +10,10 @@ directement sur place. Une fois le dossier dans les dossiers définitifs :
     photos AISBW » : en-tête avec le n° de dossier, les initiales et
     l'adresse ; photos du sous-dossier « Photos » (capture Odoo .PNG
     exclue) dans une grille alignée à 2 colonnes, 8 photos par page ;
-  * le reportage est enregistré en .docx et en .pdf dans le dossier
-    (dossier de référence : 2026.3529).
+  * le reportage s'appelle « Reportage photos.docx » (comme dans 2026.3529
+    et 2026.3654) ; si un « Reportage photos.docx » vierge est déjà dans le
+    dossier, c'est lui qui est rempli (copie de sécurité hors Dropbox).
+    Pas de PDF par défaut (règle constatée sur 3654, 21/11/2026).
 """
 import os
 import re
@@ -71,11 +73,20 @@ def final_pdf_name(folder, initiales="GB"):
     return n[:-5] + ".pdf" if n else None
 
 
-def reportage_names(folder, initiales="GB"):
-    info = ee.parse_folder_name(folder)
-    base = f"{info['dossier']} Reportage photos {info['reste']} {info['initiales'] or initiales}"
-    base = re.sub(r'[\\/:*?"<>|]+', "-", base).strip()
-    return base + ".docx", base + ".pdf"
+def reportage_names(folder=None, initiales="GB"):
+    """Nom fixe utilisé par GB (2026.3529, 2026.3654)."""
+    return "Reportage photos.docx", "Reportage photos.pdf"
+
+
+def _is_blank_reportage(path):
+    """Vrai si le Word n'a encore aucune image (modèle vierge déposé)."""
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(path) as z:
+            return not any(n.startswith("word/media/") for n in z.namelist())
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def default_header_address(folder):
@@ -146,9 +157,11 @@ def export_pdf(docx_path):
     return pdf
 
 
-def build_reportage(folder, items, adresse, initiales="GB", modele=None, with_pdf=True, progress_cb=None):
-    """Crée le reportage photos (.docx + .pdf) dans le dossier. `items` :
-    [{"path", "role", "rot"}] ; les photos « exclure » sont ignorées. Un
+def build_reportage(folder, items, adresse, initiales="GB", modele=None, with_pdf=False, progress_cb=None):
+    """Crée « Reportage photos.docx » dans le dossier (PDF seulement si
+    `with_pdf`). `items` : [{"path", "role", "rot"}] ; les photos
+    « exclure » sont ignorées. Un « Reportage photos.docx » VIERGE déjà dans
+    le dossier sert de modèle ; sinon le modèle AISBW du programme. Un
     reportage existant est d'abord sauvegardé hors Dropbox, puis remplacé.
     Retourne {"docx", "pdf", "photos", "remarques", "sauvegardes"}."""
     import docx
@@ -158,6 +171,9 @@ def build_reportage(folder, items, adresse, initiales="GB", modele=None, with_pd
             progress_cb(msg)
 
     securite.check_dossier_folder(folder)
+    existant = os.path.join(folder, reportage_names()[0])
+    if modele is None and os.path.exists(existant) and _is_blank_reportage(existant):
+        modele = existant  # modèle vierge déposé dans le dossier (cas 3654)
     modele = modele or MODELE_REPORTAGE
     if not os.path.exists(modele):
         raise AisbwError(f"Modèle du reportage introuvable : {modele}")

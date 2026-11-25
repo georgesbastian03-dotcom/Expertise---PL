@@ -62,8 +62,7 @@ GRILLE_CASE_W_CM = 7.87
 GRILLE_COL_CM = 8.5
 GRILLE_ESPACE_CM = 0.25
 # Photo des clés (flottante) et des compteurs (une ligne)
-CLES_H_CM = 3.0
-CLES_W_MAX_CM = 4.0
+CLES_COTE_CM = 4.0    # GB 25/11 : plus grand côté ≈ 4 cm (3566, 3756)
 CLES_TOP_CM = 0.1
 COMPTEURS_H_CM = 3.0
 COMPTEURS_LARGEUR_MAX_CM = 16.0
@@ -76,7 +75,7 @@ COMPRESS_MAX_PX = 1400
 COMPRESS_QUALITY = 80
 
 EXPERT_NOM = "Georges BASTIAN"
-EXPERT_QUALITE = "Géomètre-expert & Expert immobilier agréé"
+EXPERT_QUALITE = "Géomètre Expert & Expert Immobilier"
 
 ROLES = ("piece", "cles", "compteur", "exclure")
 ROLE_LABELS = {"piece": "Pièce", "cles": "Clés", "compteur": "Compteur", "exclure": "Exclure"}
@@ -368,6 +367,133 @@ def fix_bailleur_refs(body):
     return n
 
 
+def fix_date_refs(body):
+    """Champs REF EDL_date (page de garde) : après une mise à jour complète
+    des champs, Word colle l'année à la date (« 29 octobre2026 »). Les dates
+    du constat sont toutes écrites par le programme : ces REF deviennent du
+    texte fixe (le contrôle « Date du constat » est gardé). Retourne le
+    nombre de champs fixés."""
+    n = 0
+    for p in list(body.iter(W + "p")):
+        for f in _fields_in_paragraph(p):
+            if re.match(r"\s*REF\s+EDL_date\b", f["instr"]):
+                _unwrap_field(p, f)
+                n += 1
+    return n
+
+
+def restore_numpages(body):
+    """La dactylo remplace parfois le champ NUMPAGES (« NOMBRE DE PAGES »
+    de la garde) par un nombre tapé : le champ est remis. Retourne True si
+    une correction a été faite."""
+    paras = list(body.iter(W + "p"))
+    for i, p in enumerate(paras[:-1]):
+        if _text(p).strip().upper() != "NOMBRE DE PAGES":
+            continue
+        q = paras[i + 1]
+        if any("NUMPAGES" in (t.text or "") for t in q.iter(W + "instrText")) or \
+                any(fs.get(W + "instr", "").strip().startswith("NUMPAGES") for fs in q.iter(W + "fldSimple")):
+            return False
+        if not re.fullmatch(r"\s*\d*\s*", _text(q)):
+            return False
+        typed = _text(q).strip()
+        runs = q.findall(W + "r")
+        rpr = runs[0].find(W + "rPr") if runs else None
+        for r in runs:
+            q.remove(r)
+
+        def run_with(child):
+            r = _make("w:r")
+            if rpr is not None:
+                r.append(deepcopy(rpr))
+            r.append(child)
+            q.append(r)
+        run_with(_make("w:fldChar", fldCharType="begin"))
+        it = _make("w:instrText")
+        it.text = " NUMPAGES "
+        it.set(XML_SPACE, "preserve")
+        run_with(it)
+        run_with(_make("w:fldChar", fldCharType="separate"))
+        t = _make("w:t")
+        t.text = typed or "1"
+        run_with(t)
+        run_with(_make("w:fldChar", fldCharType="end"))
+        return True
+    return False
+
+
+def sync_styleref_headers(document):
+    """En-têtes « … Dossier n° STYLEREF "EDL Dossier" » : le résultat
+    mémorisé du modèle (« 2026.0000 / BEX ») reste parfois affiché tel quel.
+    Il est remplacé par le texte actuel du premier paragraphe du corps qui
+    porte ce style (« 2026.3484 / GB »). Retourne le nombre de champs mis
+    à jour."""
+    body = document.element.body
+    names = {st.style_id: st.name for st in document.styles}
+    first_text = {}
+    for p in body.iter(W + "p"):
+        ps = p.find(W + "pPr/" + W + "pStyle")
+        if ps is None:
+            continue
+        nm = names.get(ps.get(W + "val"), ps.get(W + "val"))
+        if nm not in first_text and _text(p).strip():
+            first_text[nm] = _text(p).strip()
+    n = 0
+    seen = set()
+    for section in document.sections:
+        for hdr in (section.header, section.first_page_header, section.even_page_header):
+            el = hdr._element
+            if id(el) in seen:
+                continue
+            seen.add(id(el))
+            for p in el.iter(W + "p"):
+                for f in _fields_in_paragraph(p):
+                    m = re.match(r'\s*STYLEREF\s+"([^"]+)"', f["instr"])
+                    if not m or not f["result_ts"] or m.group(1) not in first_text:
+                        continue
+                    new = first_text[m.group(1)]
+                    if "".join(t.text or "" for t in f["result_ts"]).strip() != new:
+                        f["result_ts"][0].text = new
+                        f["result_ts"][0].set(XML_SPACE, "preserve")
+                        for t in f["result_ts"][1:]:
+                            t.text = ""
+                        n += 1
+    return n
+
+
+_SANS_SAUT = ("CLES, COMPTEURS ET ENTRETIENS", "INFORMATIONS COMPLEMENTAIRES", "CONSTATATIONS",
+              "PHOTOGRAPHIES", "AUTRES PHOTOGRAPHIES")
+
+
+def remove_section_breaks(body):
+    """Retire les sauts de page forcés juste avant les rubriques de
+    `_SANS_SAUT` (paragraphes vides ne contenant qu'un saut de page, et
+    « saut de page avant » sur le titre). Retourne le nombre de sauts
+    retirés."""
+    n = 0
+    els = _children(body)
+    for i, el in enumerate(els):
+        t = ee._norm(_text(el)).strip()
+        if not t or not any(t.startswith(k) for k in _SANS_SAUT):
+            continue
+        if t.startswith("PHOTOGRAPHIES") and "CERTIFI" not in t:
+            continue
+        if _is_p(el):
+            ppr = el.find(W + "pPr")
+            pbb = ppr.find(W + "pageBreakBefore") if ppr is not None else None
+            if pbb is not None:
+                ppr.remove(pbb)
+                n += 1
+        j = i - 1
+        while j >= 0 and _is_p(els[j]) and not _text(els[j]).strip() and not _has_drawing(els[j]) \
+                and els[j].find(".//" + W + "sectPr") is None:
+            if _has_page_break(els[j]):
+                body.remove(els[j])
+                n += 1
+            j -= 1
+    return n
+
+
 def sync_ref_results(body, changes):
     """Met à jour le résultat affiché des champs REF dont le texte était une
     ancienne valeur modifiée (`changes` : {ancien: nouveau})."""
@@ -449,9 +575,16 @@ def _keys_region(loc):
         return None
     if i0 > 0 and _is_p(loc["els"][i0 - 1]) and not _text(loc["els"][i0 - 1]).strip():
         i0 -= 1
-    i1 = loc["rappel_attest"] if loc["rappel_attest"] is not None else loc["rubrique_attest"]
-    if i1 is None:
+    # Fin = dernier encadré de la rubrique : attestations (modèle 29/10,
+    # canevas 08/11) ou compteurs (canevas 23/11, attestations en premier).
+    ends = [loc[k] for k in ("rappel_attest", "rappel_compteurs", "rubrique_attest") if loc[k] is not None]
+    if not ends:
         return None
+    i1 = max(ends)
+    # + la ligne de photos des compteurs placée juste après l'encadré
+    els = loc["els"]
+    while i1 + 1 < len(els) and _is_p(els[i1 + 1]) and _has_drawing(els[i1 + 1]):
+        i1 += 1
     return i0, i1
 
 
@@ -723,12 +856,29 @@ def _tick(sdt):
             t.text = "☒"
 
 
+# Textes pré-imprimés des tableaux (canevas du 23/11 : unités, localisation)
+_PREIMPRIME = {"kWh", "m³", "m3", "voir descriptif", "% ≈ … litres", "☐", "☒"}
+
+
 def _table_filled(tbl):
+    """Vrai si la dactylo a rempli au moins une ligne. Ignore la 1re
+    colonne (libellés), les textes pré-imprimés (unités, « Localisation : »)
+    et, pour les attestations, la colonne « Attestation » ; une case
+    « Présentée » cochée compte comme remplie."""
     rows = tbl.findall(W + "tr")
     for tr in rows[1:]:
         cells = tr.findall(W + "tc")
-        if any(_text(tc).strip() for tc in cells[1:]):
-            return True
+        if len(cells) < 2:
+            continue
+        first = _text(cells[0]).strip()
+        if first in ("☐", "☒"):
+            if first == "☒" or any(_text(tc).strip() for tc in cells[2:]):
+                return True
+            continue
+        for tc in cells[1:]:
+            v = _text(tc).strip()
+            if v and v not in _PREIMPRIME and not re.fullmatch(r"Localisation\s*:?", v):
+                return True
     return False
 
 
@@ -956,6 +1106,10 @@ def finalize(docx_path, items, date_cloture=None, parties_updates=None, initiale
         for s in _sdts(body, "rue") + _sdts(body, "localite"):
             _highlight(s)
     sync_ref_results(body, changes)
+    fix_date_refs(body)
+    sync_styleref_headers(d)
+    if restore_numpages(body):
+        remarques.append("Nombre de pages de la garde : le nombre tapé a été remplacé par le champ automatique.")
 
     # 3. Parties : corrections de Georges, puis police des noms
     _apply_parties(body, parties_updates, remarques)
@@ -1039,11 +1193,9 @@ def finalize(docx_path, items, date_cloture=None, parties_updates=None, initiale
     loc = _locate(body)
     if cles and loc["titre_cles"] is not None:
         data, w, h = prepared[id(cles[0])]
-        cy = CLES_H_CM * EMU_PER_CM
-        cx = cy * w / h
-        if cx > CLES_W_MAX_CM * EMU_PER_CM:
-            cx = CLES_W_MAX_CM * EMU_PER_CM
-            cy = cx * h / w
+        # Plus grand côté ≈ 4 cm (GB : 3566 = 3,14 × 4,19 ; 3756 = 4 × 3)
+        k = CLES_COTE_CM * EMU_PER_CM / max(w, h)
+        cx, cy = w * k, h * k
         i = loc["titre_cles"]
         host = loc["els"][i - 1] if i > 0 and _is_p(loc["els"][i - 1]) and not _text(loc["els"][i - 1]).strip() \
             and not _has_page_break(loc["els"][i - 1]) else loc["els"][i]
@@ -1074,21 +1226,12 @@ def finalize(docx_path, items, date_cloture=None, parties_updates=None, initiale
                 p.append(r)
             p.append(_picture_run(d, prepared[id(it)][0], cx * k, cy * k))
         loc["els"][loc["rappel_compteurs"]].addnext(p)
-    # Page blanche évitée : quand la page clés/compteurs est pleine, le saut
-    # de page manuel suivi d'une ligne vide déborde sur une page vide. Le
-    # saut manuel est remplacé par « saut de page avant » sur le titre
-    # « Informations complémentaires ».
-    loc = _locate(body)
-    if loc["rappel_attest"] is not None:
-        els = loc["els"]
-        i_info = _find_child(els, lambda e: _is_p(e) and ee._norm(_text(e)).startswith("INFORMATIONS COMPLEMENTAIRES"),
-                             loc["rappel_attest"] + 1)
-        between = els[loc["rappel_attest"] + 1: i_info] if i_info is not None else []
-        if i_info is not None and all(_is_p(e) and not _text(e).strip() and not _has_drawing(e)
-                                      and e.find(".//" + W + "sectPr") is None for e in between):
-            for e in between:
-                body.remove(e)
-            ee._set_ppr_flag(els[i_info], "pageBreakBefore", True)
+    # Sauts de page (règle GB 25/11) : les rubriques s'enchaînent, sans
+    # saut forcé avant Clés/compteurs, Informations complémentaires,
+    # CONSTATATIONS, PHOTOGRAPHIES et AUTRES PHOTOGRAPHIES (la galerie peut
+    # commencer en bas de page). Les sauts avant Notes liminaires, Éléments
+    # non investigués, Notes générales et Compléments et clôture restent.
+    remove_section_breaks(body)
 
     # 4f. Cases à cocher
     loc = _locate(body)
@@ -1106,13 +1249,6 @@ def finalize(docx_path, items, date_cloture=None, parties_updates=None, initiale
             _tick(cbs[1])
         if tbl is not None and not _table_filled(tbl) and label != "attestations":
             remarques.append(f"Tableau des {label} vide : vérifier la dictée (relevés entre parties ?).")
-
-    # 5. Saut de page avant « Compléments et clôture » retiré (les autres
-    # photographies et la clôture partagent la page, comme le 2026.3384).
-    if loc["autres_photos"] is not None and loc["titre_cloture"] is not None:
-        for el in els[loc["autres_photos"] + 1: loc["titre_cloture"]]:
-            if _is_p(el) and _has_page_break(el) and not _text(el).strip() and not _has_drawing(el):
-                body.remove(el)
 
     # 6. Date de clôture figée
     texte_date = format_date_cloture(date_cloture or date.today().strftime("%d/%m/%Y"))
