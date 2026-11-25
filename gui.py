@@ -246,7 +246,9 @@ class PermisLocationTab(ttk.Frame):
         default_att = self.cfg.get("attestation_2a_type")
         if default_att not in ATTESTATION_CHOICES:
             # Ancien réglage (simple case à cocher) : on suit le type d'annexe.
-            default_att = (default_value.partition(":")[0] or "individuel") if self.cfg.get("attestations_2a", True) else "aucune"
+            # (L'ancienne case était souvent restée décochée : on part toujours
+            # du type d'annexe, GB veut les attestations par défaut.)
+            default_att = default_value.partition(":")[0] or "individuel"
         self.attest_type_var = tk.StringVar(value=default_att)
         for code, label in ATTESTATION_CHOICES.items():
             ttk.Radiobutton(
@@ -827,7 +829,8 @@ class PermisLocationTab(ttk.Frame):
             stopped = stop_event.is_set()
             self.after(
                 0,
-                lambda: self._on_generation_done(results, output_folder, dossier, annexe, fmt, adresses, total_units, stopped),
+                lambda: self._on_generation_done(results, output_folder, dossier, annexe, fmt, adresses, total_units, stopped,
+                                                 attestations),
             )
 
         threading.Thread(target=worker, daemon=True).start()
@@ -844,7 +847,8 @@ class PermisLocationTab(ttk.Frame):
         self.status_var.set("")
         messagebox.showerror("Erreur de génération", f"Erreur lors de la préparation des plans ou de la génération :\n{exc}")
 
-    def _on_generation_done(self, results, output_folder, dossier, annexe, fmt, adresses, total_units=None, stopped=False):
+    def _on_generation_done(self, results, output_folder, dossier, annexe, fmt, adresses, total_units=None, stopped=False,
+                            attestations_demandees=True):
         self.generate_btn.config(state="normal")
         self.stop_btn.config(state="disabled")
 
@@ -870,6 +874,8 @@ class PermisLocationTab(ttk.Frame):
             msg_lines = [f"{len(ok)} {quoi} généré(s) sur {total_attendu}."]
         if unknown_tags:
             msg_lines.append("Balises non reconnues dans le gabarit (laissées vides) : " + ", ".join(sorted(unknown_tags)))
+        if not attestations_demandees:
+            msg_lines.append("Aucune attestation 2A : « Pas d'attestation » est choisi dans la colonne Attestation 2A.")
         attests = [r for r in results if "attest_docx" in r]
         if attests and quoi == "rapport(s)":
             n_ok = sum(1 for r in attests if r.get("attest_docx"))
