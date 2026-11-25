@@ -39,7 +39,8 @@ FIELD_ALIASES = {
     "etage": ["etage"],
     "avAr": ["av/ ar", "av/ar"],
     "gcd": ["g/c/d"],
-    "nbOccupants": ["nbre occupants", "nbre occup"],
+    "nbOccupants": ["nbre occupants", "nbre occup", "nbre d'occupants", "nombre d'occupants", "nombre occupants",
+                    "capacite d'accueil", "capacite daccueil", "capacite accueil", "capacite"],
     "nbPiecesInd": ["nbre pieces individuels"],
     "nbPiecesColl": ["nbre pieces collectives"],
     "nbSdb": ["nbre sdb/sdd"],
@@ -334,6 +335,8 @@ def format_val_m2(v) -> str:
 
 
 def to_num(v) -> float:
+    """Nombre lu dans une cellule ; « 1 étudiant », « 2 pers. » → 1, 2
+    (GB 25/11 : la colonne d'occupation peut contenir le nombre suivi d'un mot)."""
     if is_empty(v):
         return 0.0
     if isinstance(v, (int, float)):
@@ -341,7 +344,62 @@ def to_num(v) -> float:
     try:
         return float(str(v).replace(",", "."))
     except ValueError:
-        return 0.0
+        mt = re.match(r"\s*(\d+(?:[.,]\d+)?)", str(v))
+        return float(mt.group(1).replace(",", ".")) if mt else 0.0
+
+
+def occupants_total(cells) -> str:
+    """Total des occupants de plusieurs chambres. Si les cellules portent un
+    mot après le nombre (« 1 étudiant »), le total le garde, au pluriel :
+    « 3 étudiants ». Sinon, le nombre seul, comme avant."""
+    vals = [c for c in cells if not is_empty(c) and str(c).strip()]
+    total = sum(to_num(c) for c in vals)
+    mots = set()
+    for c in vals:
+        if isinstance(c, (int, float)):
+            continue
+        mt = re.match(r"\s*\d+(?:[.,]\d+)?\s*(.+?)\s*$", str(c))
+        if mt:
+            mots.add(mt.group(1).lower().rstrip("s"))
+    n = format_val(total)
+    if len(mots) == 1:
+        mot = mots.pop()
+        return f"{n} {mot}{'s' if total > 1 else ''}"
+    return n
+
+
+def has_unit_word(v) -> bool:
+    """« 1 étudiant » → True ; 1, « 1 » → False."""
+    return bool(re.match(r"\s*\d+(?:[.,]\d+)?\s*[^\d\s]", str(v))) if not is_empty(v) and not isinstance(v, (int, float)) else False
+
+
+def menages_personnes_collectif(unit, m):
+    """(ménages, personnes) d'un logement collectif.
+    Ménages = nombre de chambres occupées (colonne d'occupation remplie),
+    sinon nombre de chambres. Personnes = total des chambres ; si aucune
+    chambre n'est remplie, la valeur de la ligne Commu (« 5 étudiants »).
+    Une valeur avec unité reçoit le marqueur qui retire « personne(s) »."""
+    from docx_fill import UNIT_MARK
+    chambres = unit["chambres"]
+    vals = [cell(c, m, "nbOccupants") for c in chambres]
+    remplies = [v for v in vals if to_num(v) > 0]
+    menages = str(len(remplies) or len(chambres))
+    if remplies:
+        personnes = occupants_total(vals)
+    else:
+        personnes = format_val(cell(unit["commun_row"], m, "nbOccupants")) or "0"
+    if re.search(r"[^\d\s,.]", personnes):
+        personnes += UNIT_MARK
+    return menages, personnes
+
+
+def first_filled(rows, m, field) -> str:
+    """Première valeur remplie de la colonne sur ces lignes (« » si aucune)."""
+    for r in rows:
+        v = format_val(cell(r, m, field))
+        if v:
+            return v
+    return ""
 
 
 def build_localisation(row, m) -> str:
@@ -473,7 +531,8 @@ def build_data_spec_collectif(unit, m, extra_scalars=None):
     nb_sanit = to_num(cell(row, m, "nbSdb")) + to_num(cell(row, m, "nbWc"))
     localite = str(cell(row, m, "localite") or "").strip()
     date_passage_val = dates_passage([row] + chambres, m)
-    date_cloture_val = format_val(cell(row, m, "dateCloture"))
+    # Date de clôture : ligne Commu, sinon la première chambre où elle est remplie.
+    date_cloture_val = first_filled([row] + chambres, m, "dateCloture")
     unit_bte_val = str(cell(row, m, "bte")).strip() if cell(row, m, "bte") is not None else ""
 
     scalars = {
@@ -543,7 +602,7 @@ def build_data_spec_collectif(unit, m, extra_scalars=None):
     sup_totale = [format_val_m2(cell(c, m, "supTotale")) for c in chambres]
     av_ar = [str(cell(c, m, "avAr") or "").strip() for c in chambres]
     gcd = [str(cell(c, m, "gcd") or "").strip() for c in chambres]
-    total_occupants = format_val(sum(to_num(cell(c, m, "nbOccupants")) for c in chambres))
+    menages, personnes = menages_personnes_collectif(unit, m)
 
     positional = {
         "N_chambre": [format_val(cell(c, m, "bte")) for c in chambres],
@@ -569,7 +628,11 @@ def build_data_spec_collectif(unit, m, extra_scalars=None):
         # qui suivent le tableau (jusqu'à 8 occurrences couvertes, largement
         # suffisant ; les occurrences en trop, s'il y en a moins, sont
         # simplement ignorées).
-        "Nbre occupants": [format_val(cell(c, m, "nbOccupants")) for c in chambres] + pad + [total_occupants] * 8,
+        # Après le tableau, le gabarit 1B alterne « … ménage(s) » et
+        # « … personne(s) » (deux fois) : ménages = chambres occupées,
+        # personnes = total (GB 25/11/2026).
+        "Nbre occupants": [format_val(cell(c, m, "nbOccupants")) for c in chambres] + pad
+        + [menages, personnes] * 4,
     }
     return scalars, positional
 
@@ -637,13 +700,14 @@ def build_data_spec_attestation(unit, m, extra_scalars=None):
     if unit["format"] == "collectif":
         scalars, _pos = build_data_spec_collectif(unit, m, extra_scalars)
         row = unit["commun_row"]
-        chambres = unit["chambres"]
         scalars["Bte"] = str(cell(row, m, "bte")).strip() if cell(row, m, "bte") is not None else ""
-        scalars["Nbre_menages"] = str(len(chambres))
-        scalars["Nbre_occupants"] = format_val(sum(to_num(cell(c, m, "nbOccupants")) for c in chambres))
+        scalars["Nbre_menages"], scalars["Nbre_occupants"] = menages_personnes_collectif(unit, m)
     else:
         scalars, _pos = build_data_spec_individuel(unit, m, extra_scalars)
         scalars["Nbre_menages"] = "1"
+        if has_unit_word(cell(unit["row"], m, "nbOccupants")):
+            from docx_fill import UNIT_MARK
+            scalars["Nbre_occupants"] += UNIT_MARK
     return scalars, {}
 
 
