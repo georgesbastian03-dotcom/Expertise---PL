@@ -744,6 +744,14 @@ class PermisLocationTab(ttk.Frame):
             text="Exporter aussi en PDF (nécessite Word installé)",
             variable=self.export_pdf_var,
             command=self._on_pdf_toggle,
+        ).pack(anchor="w", pady=(0, 4))
+
+        # Pas mémorisée : à cocher volontairement pour chaque lot.
+        self.travaux_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            frame,
+            text="Le bailleur a procédé aux réparations (ajoute la phrase sous les remarques)",
+            variable=self.travaux_var,
         ).pack(anchor="w", pady=(0, 8))
 
         btn_row = ttk.Frame(frame)
@@ -850,6 +858,7 @@ class PermisLocationTab(ttk.Frame):
         self.stop_event = threading.Event()
         self.stop_btn.config(state="normal")
         export_pdf = self.export_pdf_var.get()
+        travaux_realises = self.travaux_var.get()
         attestations = attest_type != "aucune"
         reports = not attest_only
         dossier_attest = generator.dossier_number(dossier, self.excel_path)
@@ -876,7 +885,7 @@ class PermisLocationTab(ttk.Frame):
                 results = generator.generate_reports(
                     annexe, units, m, gabarits_folder, output_folder, export_pdf, progress, extra_scalars,
                     plan_paths, should_stop=stop_event.is_set, attestations=attestations, reports=reports,
-                    dossier=dossier_attest, initiales=initiales,
+                    dossier=dossier_attest, initiales=initiales, travaux_realises=travaux_realises,
                 )
             except Exception as exc:  # noqa: BLE001
                 self.after(0, lambda e=exc: self._on_generation_failed(e))

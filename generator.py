@@ -162,6 +162,9 @@ def load_mission(excel_path: str):
     return fmt, units, m, unmatched, ignored_rows, extra_scalars
 
 
+TRAVAUX_PHRASE = "Le bailleur a procédé aux réparations des points cités ci-dessus."
+
+
 def generate_reports(
     annexe,
     units,
@@ -177,6 +180,7 @@ def generate_reports(
     reports=True,
     dossier="",
     initiales="GB",
+    travaux_realises=False,
 ):
     """Génère un .docx (et .pdf si demandé) par unité. Retourne une liste de
     dicts {file_base, docx_path, pdf_path, unknown_tags, error}.
@@ -199,6 +203,8 @@ def generate_reports(
 
     rendered_pages = plans.render_pages(plan_paths) if (plan_paths and reports) else []
     scalars_with_plans = dict(extra_scalars or {})
+    # Case « travaux réalisés » : phrase ajoutée sous les remarques.
+    scalars_with_plans[docx_fill.TRAVAUX_TAG] = TRAVAUX_PHRASE if travaux_realises else ""
     # Le regroupement des plans dépend de la taille utile de la page du
     # gabarit : on la lit une fois sur le gabarit du lot.
     plans_area = None
